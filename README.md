@@ -32,9 +32,12 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`find_definition`](#find_definition)
   - [`find_references`](#find_references)
   - [`rename_symbol`](#rename_symbol)
+  - [`rename_symbol_strict`](#rename_symbol_strict)
   - [`get_diagnostics`](#get_diagnostics)
   - [`get_class_members`](#get_class_members)
   - [`get_method_signature`](#get_method_signature)
+  - [`search_type`](#search_type)
+  - [`get_document_symbols`](#get_document_symbols)
 - [💡 Real-world Examples](#-real-world-examples)
   - [Finding Function Definitions](#finding-function-definitions)
   - [Finding All References](#finding-all-references)
@@ -354,38 +357,46 @@ The server exposes these MCP tools:
 
 ### `find_definition`
 
-Find the definition of a symbol at a specific position. Returns line/character numbers as 1-based for human readability.
+Find the definition of a symbol by name and kind in a file. Returns definitions for all matching symbols.
 
 **Parameters:**
 
-- `file_path`: Absolute path to the file
-- `line`: Line number (1-indexed by default; set `use_zero_index` to use 0-based indexing)
-- `character`: Character position (0-based)
-- `use_zero_index`: If true, use line number as-is (0-indexed); otherwise subtract 1 for 1-indexed input (optional, default: false)
+- `file_path`: The path to the file
+- `symbol_name`: The name of the symbol
+- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
 
 ### `find_references`
 
-Find all references to a symbol at a specific position. Returns line/character numbers as 1-based for human readability.
+Find all references to a symbol by name and kind in a file. Returns references for all matching symbols.
 
 **Parameters:**
 
-- `file_path`: Absolute path to the file
-- `line`: Line number (1-indexed by default; set `use_zero_index` to use 0-based indexing)
-- `character`: Character position (0-based)
+- `file_path`: The path to the file
+- `symbol_name`: The name of the symbol
+- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
 - `include_declaration`: Whether to include the declaration (optional, default: true)
-- `use_zero_index`: If true, use line number as-is (0-indexed); otherwise subtract 1 for 1-indexed input (optional, default: false)
 
 ### `rename_symbol`
 
-Rename a symbol at a specific position in a file. Returns the file changes needed to rename the symbol across the codebase.
+Rename a symbol by name and kind in a file. If multiple symbols match, returns candidate positions and suggests using rename_symbol_strict.
 
 **Parameters:**
 
-- `file_path`: Absolute path to the file
-- `line`: Line number (1-indexed by default; set `use_zero_index` to use 0-based indexing)
-- `character`: Character position (0-based)
+- `file_path`: The path to the file
+- `symbol_name`: The name of the symbol
+- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
 - `new_name`: The new name for the symbol
-- `use_zero_index`: If true, use line number as-is (0-indexed); otherwise subtract 1 for 1-indexed input (optional, default: false)
+
+### `rename_symbol_strict`
+
+Rename a symbol at a specific position in a file. Use this when rename_symbol returns multiple candidates.
+
+**Parameters:**
+
+- `file_path`: The path to the file
+- `line`: The line number (1-indexed)
+- `character`: The character position in the line (1-indexed)
+- `new_name`: The new name for the symbol
 
 ### `get_diagnostics`
 
@@ -422,6 +433,38 @@ Show full method definition with parameters and return type using LSP hover info
 - Parsed parameter details with types and default values
 - Namespace/package information for complex types
 - Documentation comments when available
+
+### `search_type`
+
+Search for symbols (types, methods, functions, variables, etc.) across the entire workspace by name. Supports wildcards and case-insensitive search by default, making it perfect for discovering symbols when you don't know the exact location.
+
+**Parameters:**
+- `type_name`: The name or pattern of the symbol to search for. Supports wildcards: `*` (any sequence), `?` (single char). Examples: `BreakType`, `*method`, `getValue*`, `?etData`
+- `type_kind`: Optional - Filter by symbol kind (`class`, `interface`, `enum`, `struct`, `type_parameter`, `method`, `function`, `constructor`, `field`, `variable`, `property`, `constant`, `namespace`, `module`, `package`)
+- `case_sensitive`: Optional - Whether to perform case-sensitive search (default: false)
+
+**Features:**
+- **Workspace-wide search**: Searches across all files in the workspace
+- **Wildcard support**: Use `*` and `?` for pattern matching
+- **Symbol filtering**: Filter results by specific symbol types
+- **Case-insensitive by default**: Finds symbols regardless of case
+- **Smart symbol resolution**: Handles complex signatures for methods and functions
+
+### `get_document_symbols`
+
+Get all symbols (classes, functions, variables, etc.) in a document with their locations and hierarchy. Perfect for exploring unfamiliar files and understanding code structure at a glance.
+
+**Parameters:**
+- `file_path`: The path to the file to analyze
+- `symbol_kind`: Optional - Filter by symbol kind (`class`, `function`, `variable`, `method`, `property`, `field`, `constructor`, `enum`, `interface`, `namespace`, `module`, `constant`)
+- `include_children`: Whether to include child symbols (e.g., methods within classes) - default: true
+
+**Features:**
+- **Complete file overview**: Lists all symbols in a single file without needing to know what to look for
+- **Hierarchical structure**: Shows parent-child relationships (e.g., methods within classes)  
+- **Symbol filtering**: Optionally filter by specific symbol types
+- **Location information**: Provides exact line and character positions
+- **Discovery-oriented**: Ideal for code exploration and understanding file architecture
 
 ## 💡 Real-world Examples
 
@@ -525,6 +568,48 @@ Type Details:
     - date: Date | string
     - format?: string = "YYYY-MM-DD"
   Returns: string
+```
+
+### Searching Across the Workspace
+
+When you need to find symbols but don't know their exact location:
+
+```
+Claude: I need to find all error handling functions in this codebase
+> Using cclsp.search_type with type_name "*Error*"
+
+Results: Found 12 symbols matching "*Error*":
+• CustomError (class) at src/utils/errors.ts:5:1
+• handleError (function) at src/handlers/error.ts:10:1
+• ApiError (class) at src/services/api-client.ts:15:1
+• logError (method) at src/logger.ts:45:3
+• parseErrorResponse (function) at src/utils/response.ts:23:1
+```
+
+### Exploring Unfamiliar Files
+
+When you encounter a new file and want to understand its structure:
+
+```
+Claude: Let me see what's in this authentication module
+> Using cclsp.get_document_symbols for file "src/auth/jwt.ts"
+
+Found 8 symbols in src/auth/jwt.ts:
+
+Classes:
+• JwtService at line 10:1
+  - constructor() at line 12:3
+  - generateToken(payload: object): string at line 15:3
+  - verifyToken(token: string): object at line 25:3
+  - refreshToken(token: string): string at line 35:3
+
+Functions:
+• createJwtSecret(): string at line 45:1
+• isTokenExpired(token: string): boolean at line 50:1
+
+Constants:
+• JWT_ALGORITHM: string at line 5:1
+• DEFAULT_EXPIRY: number at line 6:1
 ```
 
 ## 🔍 Troubleshooting

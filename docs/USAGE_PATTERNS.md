@@ -5,9 +5,10 @@ This document outlines common usage patterns for the CCLSP MCP server in develop
 ## Table of Contents
 1. [Basic Symbol Navigation](#basic-symbol-navigation)
 2. [Code Exploration](#code-exploration)
-3. [Refactoring](#refactoring)
-4. [Debugging and Diagnostics](#debugging-and-diagnostics)
-5. [API Documentation](#api-documentation)
+3. [Workspace Discovery](#workspace-discovery)
+4. [Refactoring](#refactoring)
+5. [Debugging and Diagnostics](#debugging-and-diagnostics)
+6. [API Documentation](#api-documentation)
 
 ## Basic Symbol Navigation
 
@@ -35,6 +36,33 @@ find_references:
 ```
 
 ## Code Exploration
+
+### Exploring File Structure
+
+Get all symbols in a document to understand its organization:
+
+```
+get_document_symbols:
+  file_path: "src/services/api.ts"
+  include_children: true  # show methods within classes
+```
+
+This returns:
+- Hierarchical view of all symbols in the file
+- Classes, functions, variables, methods, etc.
+- Location information for each symbol
+- Parent-child relationships (methods within classes)
+
+### Filtering Document Symbols
+
+Get only specific types of symbols from a file:
+
+```
+get_document_symbols:
+  file_path: "src/components/button.tsx"
+  symbol_kind: "function"  # only show functions
+  include_children: false  # don't show nested symbols
+```
 
 ### Exploring Class Structure
 
@@ -69,6 +97,59 @@ Returns:
 - JSDoc comments if available
 - Overload signatures if applicable
 
+## Workspace Discovery
+
+### Finding Symbols Across the Workspace
+
+Search for symbols when you don't know their exact location:
+
+```
+search_type:
+  type_name: "UserController"
+  type_kind: "class"  # optional filter
+  case_sensitive: false  # default
+```
+
+### Using Wildcards for Pattern Matching
+
+Find symbols matching patterns:
+
+```
+search_type:
+  type_name: "*Error*"  # find all symbols containing "Error"
+  type_kind: "class"
+```
+
+```
+search_type:
+  type_name: "get*"  # find all symbols starting with "get"
+  type_kind: "method"
+```
+
+```
+search_type:
+  type_name: "?etUser"  # find symbols like "getUser", "setUser"
+  type_kind: "function"
+```
+
+### Discovering API Endpoints
+
+Find all controller methods:
+
+```
+search_type:
+  type_name: "*Controller"
+  type_kind: "class"
+```
+
+Then explore each controller:
+
+```
+get_class_members:
+  file_path: "src/controllers/user-controller.ts"
+  class_name: "UserController"
+```
+
 ## Refactoring
 
 ### Safe Symbol Renaming
@@ -80,6 +161,7 @@ Rename symbols across the entire codebase:
 rename_symbol:
   file_path: "src/config.ts"
   symbol_name: "oldConfigName"
+  symbol_kind: "variable"  # optional, helps narrow results
   new_name: "newConfigName"
 
 # For ambiguous symbols (multiple matches)
@@ -116,20 +198,26 @@ Here's a complete workflow for exploring and understanding an API:
 
 1. **Find the main API class**:
    ```
-   find_definition:
-     file_path: "src/index.ts"
-     symbol_name: "ApiClient"
-     symbol_kind: "class"
+   search_type:
+     type_name: "ApiClient"
+     type_kind: "class"
    ```
 
-2. **Explore its structure**:
+2. **Get complete file overview**:
+   ```
+   get_document_symbols:
+     file_path: "src/api/client.ts"
+     include_children: true
+   ```
+
+3. **Explore its structure**:
    ```
    get_class_members:
      file_path: "src/api/client.ts"
      class_name: "ApiClient"
    ```
 
-3. **Get method details**:
+4. **Get method details**:
    ```
    get_method_signature:
      file_path: "src/api/client.ts"
@@ -137,12 +225,36 @@ Here's a complete workflow for exploring and understanding an API:
      class_name: "ApiClient"
    ```
 
-4. **Find usage examples**:
+5. **Find usage examples**:
    ```
    find_references:
      file_path: "src/api/client.ts"
      symbol_name: "request"
      symbol_kind: "method"
+   ```
+
+### Discovery-First Approach
+
+When exploring unknown codebases:
+
+1. **Find relevant files**:
+   ```
+   search_type:
+     type_name: "*Api*"
+     case_sensitive: false
+   ```
+
+2. **Explore each file**:
+   ```
+   get_document_symbols:
+     file_path: "src/services/user-api.ts"
+   ```
+
+3. **Deep dive into interesting symbols**:
+   ```
+   get_class_members:
+     file_path: "src/services/user-api.ts"
+     class_name: "UserApi"
    ```
 
 ## Best Practices
@@ -153,9 +265,17 @@ Here's a complete workflow for exploring and understanding an API:
 
 3. **Use strict mode for ambiguous renames**: If `rename_symbol` returns multiple candidates, use `rename_symbol_strict` with specific coordinates.
 
-4. **Combine tools for comprehensive understanding**: Use `get_class_members` followed by `get_method_signature` for complete API documentation.
+4. **Combine tools for comprehensive understanding**: 
+   - Use `search_type` for workspace-wide discovery
+   - Use `get_document_symbols` for file-level exploration  
+   - Use `get_class_members` for detailed class analysis
+   - Use `get_method_signature` for complete API documentation
 
-5. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
+5. **Start with discovery tools**: When exploring unknown codebases, begin with `search_type` and `get_document_symbols` to understand the overall structure.
+
+6. **Use wildcards effectively**: Leverage `*` and `?` in `search_type` for pattern-based discovery.
+
+7. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
 
 ## Troubleshooting
 
@@ -164,7 +284,9 @@ If tools return no results:
 2. Check that the appropriate LSP server is configured for the file type
 3. Ensure the symbol name is spelled correctly
 4. Try without `symbol_kind` parameter for broader search
-5. Check server logs for any LSP errors
+5. For workspace searches, try using wildcards in `search_type`
+6. For file exploration, use `get_document_symbols` to see what symbols exist
+7. Check server logs for any LSP errors
 
 ## Language-Specific Notes
 
