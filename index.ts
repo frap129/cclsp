@@ -5,7 +5,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { LSPClient } from './src/lsp-client.js';
-import type { SymbolInformation, WorkspaceSearchResult } from './src/types.js';
+import type { DocumentSymbol, SymbolInformation, WorkspaceSearchResult } from './src/types.js';
 import { uriToPath } from './src/utils.js';
 
 // Handle subcommands
@@ -246,6 +246,44 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['type_name'],
+        },
+      },
+      {
+        name: 'get_document_symbols',
+        description:
+          'Get all symbols (classes, functions, variables, etc.) in a document with their locations and hierarchy',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file to analyze',
+            },
+            symbol_kind: {
+              type: 'string',
+              description: 'Optional: Filter by symbol kind (class, function, variable, etc.)',
+              enum: [
+                'class',
+                'function',
+                'variable',
+                'method',
+                'property',
+                'field',
+                'constructor',
+                'enum',
+                'interface',
+                'namespace',
+                'module',
+                'constant',
+              ],
+            },
+            include_children: {
+              type: 'boolean',
+              description: 'Whether to include child symbols (e.g., methods within classes)',
+              default: true,
+            },
+          },
+          required: ['file_path'],
         },
       },
     ],
@@ -870,6 +908,192 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error searching for type: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_document_symbols') {
+      const {
+        file_path,
+        symbol_kind,
+        include_children = true,
+      } = args as {
+        file_path: string;
+        symbol_kind?: string;
+        include_children?: boolean;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        const symbols = await lspClient.getDocumentSymbols(absolutePath);
+
+        if (!symbols || symbols.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No symbols found in ${file_path}. The file may be empty, have no symbols, or the language server may not support this file type.`,
+              },
+            ],
+          };
+        }
+
+        // Helper function to filter symbols by kind
+        const matchesSymbolKind = (symbolKindValue: number): boolean => {
+          if (!symbol_kind) return true;
+          return (
+            lspClient.symbolKindToString(symbolKindValue).toLowerCase() ===
+            symbol_kind.toLowerCase()
+          );
+        };
+
+        type SymbolWithMetadata = (DocumentSymbol | SymbolInformation) & {
+          depth: number;
+          isDocumentSymbol: boolean;
+        };
+
+        // Helper function to collect symbols with filtering
+        const collectSymbols = (
+          symbols: (DocumentSymbol | SymbolInformation)[],
+          depth = 0
+        ): SymbolWithMetadata[] => {
+          const collected: SymbolWithMetadata[] = [];
+
+          for (const symbol of symbols) {
+            const isDocumentSymbol = 'selectionRange' in symbol;
+
+            if (matchesSymbolKind(symbol.kind)) {
+              collected.push({
+                ...symbol,
+                depth,
+                isDocumentSymbol,
+              });
+            }
+
+            // Handle children if include_children is true and symbol has children
+            if (
+              include_children &&
+              isDocumentSymbol &&
+              symbol.children &&
+              symbol.children.length > 0
+            ) {
+              collected.push(...collectSymbols(symbol.children, depth + 1));
+            }
+          }
+
+          return collected;
+        };
+
+        const filteredSymbols = collectSymbols(symbols);
+
+        if (filteredSymbols.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No symbols found${symbol_kind ? ` of kind "${symbol_kind}"` : ''} in ${file_path}.`,
+              },
+            ],
+          };
+        }
+
+        // Group symbols by kind for better organization
+        const symbolsByKind = new Map<string, SymbolWithMetadata[]>();
+
+        for (const symbol of filteredSymbols) {
+          const kindStr = lspClient.symbolKindToString(symbol.kind);
+          if (!symbolsByKind.has(kindStr)) {
+            symbolsByKind.set(kindStr, []);
+          }
+          const existingSymbols = symbolsByKind.get(kindStr);
+          if (existingSymbols) {
+            existingSymbols.push(symbol);
+          }
+        }
+
+        // Sort groups by importance and format output
+        const kindOrder = [
+          'class',
+          'interface',
+          'enum',
+          'function',
+          'method',
+          'constructor',
+          'property',
+          'field',
+          'variable',
+          'constant',
+        ];
+        const sortedKinds = Array.from(symbolsByKind.keys()).sort((a, b) => {
+          const aIndex = kindOrder.indexOf(a);
+          const bIndex = kindOrder.indexOf(b);
+          if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+
+        const output: string[] = [
+          `Found ${filteredSymbols.length} symbol${filteredSymbols.length === 1 ? '' : 's'} in ${file_path}:`,
+        ];
+
+        for (const kindStr of sortedKinds) {
+          const symbolsOfKind = symbolsByKind.get(kindStr);
+          if (!symbolsOfKind) continue;
+
+          const capitalizedKind = kindStr.charAt(0).toUpperCase() + kindStr.slice(1);
+          output.push(`\n${capitalizedKind}${symbolsOfKind.length === 1 ? '' : 's'}:`);
+
+          for (const symbol of symbolsOfKind) {
+            const indent = '  '.repeat(symbol.depth);
+            const isDocumentSymbol = symbol.isDocumentSymbol;
+
+            let location: string;
+            const name: string = symbol.name;
+            const detail: string = 'detail' in symbol && symbol.detail ? symbol.detail : '';
+
+            if (isDocumentSymbol) {
+              // DocumentSymbol uses selectionRange for precise symbol location
+              const documentSymbol = symbol as DocumentSymbol & {
+                depth: number;
+                isDocumentSymbol: boolean;
+              };
+              location = `${documentSymbol.selectionRange.start.line + 1}:${documentSymbol.selectionRange.start.character + 1}`;
+            } else {
+              // SymbolInformation uses location.range
+              const symbolInfo = symbol as SymbolInformation & {
+                depth: number;
+                isDocumentSymbol: boolean;
+              };
+              location = `${symbolInfo.location.range.start.line + 1}:${symbolInfo.location.range.start.character + 1}`;
+            }
+
+            let symbolLine = `${indent}• ${name}`;
+            if (detail) {
+              symbolLine += ` ${detail}`;
+            }
+            symbolLine += ` at line ${location}`;
+
+            output.push(symbolLine);
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output.join('\n'),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting document symbols: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };
