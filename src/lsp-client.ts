@@ -5,6 +5,9 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadGitignore, scanDirectoryForExtensions } from './file-scanner.js';
 import type {
+  CompletionContext,
+  CompletionItem,
+  CompletionList,
   Config,
   Diagnostic,
   DocumentDiagnosticReport,
@@ -20,7 +23,7 @@ import type {
   TypeInfo,
   WorkspaceSearchResult,
 } from './types.js';
-import { SymbolKind } from './types.js';
+import { CompletionItemKind, CompletionTriggerKind, SymbolKind } from './types.js';
 import { pathToUri } from './utils.js';
 
 interface LSPMessage {
@@ -1782,70 +1785,6 @@ export class LSPClient {
     return signatures;
   }
 
-  private async findParameterPositions(
-    filePath: string,
-    methodPosition: Position
-  ): Promise<Position[]> {
-    const positions: Position[] = [];
-    try {
-      const fileContent = readFileSync(filePath, 'utf-8');
-      const tree = this.parser.parse(fileContent);
-      const methodNode = tree.rootNode.descendantForPosition({
-        row: methodPosition.line,
-        column: methodPosition.character,
-      });
-
-      if (methodNode?.parent && methodNode.parent.type === 'function_declaration') {
-        const params = methodNode.parent.namedChildren.find((c) => c.type === 'formal_parameters');
-        if (params) {
-          for (const param of params.namedChildren) {
-            if (param.type === 'required_parameter' || param.type === 'optional_parameter') {
-              const typeNode = param.namedChildren.find((c) => c.type === 'type_annotation');
-              if (typeNode?.lastNamedChild) {
-                positions.push({
-                  line: typeNode.lastNamedChild.startPosition.row,
-                  character: typeNode.lastNamedChild.startPosition.column,
-                });
-              }
-            }
-          }
-        }
-      }
-    } catch (error) {
-      process.stderr.write(`[DEBUG findParameterPositions] Error using tree-sitter: ${error}\n`);
-    }
-    return positions;
-  }
-
-  private async findReturnTypePosition(
-    filePath: string,
-    methodPosition: Position
-  ): Promise<Position | null> {
-    try {
-      const fileContent = readFileSync(filePath, 'utf-8');
-      const tree = this.parser.parse(fileContent);
-      const methodNode = tree.rootNode.descendantForPosition({
-        row: methodPosition.line,
-        column: methodPosition.character,
-      });
-
-      if (methodNode?.parent && methodNode.parent.type === 'function_declaration') {
-        const returnTypeNode = methodNode.parent.namedChildren.find(
-          (c) => c.type === 'type_annotation'
-        );
-        if (returnTypeNode?.lastNamedChild) {
-          return {
-            line: returnTypeNode.lastNamedChild.startPosition.row,
-            character: returnTypeNode.lastNamedChild.startPosition.column,
-          };
-        }
-      }
-    } catch (error) {
-      process.stderr.write(`[DEBUG findReturnTypePosition] Error using tree-sitter: ${error}\n`);
-    }
-    return null;
-  }
-
   private async readUriContent(uri: string): Promise<string> {
     const filePath = uri.startsWith('file://') ? uri.substring(7) : uri;
     try {
@@ -1937,6 +1876,161 @@ export class LSPClient {
     }
 
     return undefined;
+  }
+
+  /**
+   * Get code completion suggestions at a specific position in a file
+   */
+  async getCompletion(
+    filePath: string,
+    position: Position,
+    triggerCharacter?: string,
+    maxResults?: number
+  ): Promise<CompletionItem[]> {
+    process.stderr.write(
+      `[DEBUG getCompletion] Getting completion for ${filePath} at ${position.line}:${position.character}${triggerCharacter ? ` triggered by '${triggerCharacter}'` : ''}\n`
+    );
+
+    const positions = this.generateMultiPositions(position);
+
+    for (const pos of positions) {
+      try {
+        const result = await this.getCompletionAtPosition(filePath, pos, triggerCharacter);
+        if (result && result.length > 0) {
+          process.stderr.write(
+            `[DEBUG getCompletion] Found ${result.length} completions at position ${pos.line}:${pos.character}\n`
+          );
+
+          // Apply max results limit if specified
+          const finalResults = maxResults ? result.slice(0, maxResults) : result;
+          return finalResults;
+        }
+      } catch (error) {
+        process.stderr.write(
+          `[DEBUG getCompletion] Error at position ${pos.line}:${pos.character}: ${error}\n`
+        );
+      }
+    }
+
+    process.stderr.write('[DEBUG getCompletion] No completions found at any position\n');
+    return [];
+  }
+
+  /**
+   * Resolve additional details for a completion item
+   */
+  async resolveCompletionItem(filePath: string, item: CompletionItem): Promise<CompletionItem> {
+    try {
+      const serverState = await this.getServer(filePath);
+      await serverState.initializationPromise;
+
+      const result = await this.sendRequest(serverState.process, 'completionItem/resolve', item);
+
+      if (result && typeof result === 'object') {
+        return result as CompletionItem;
+      }
+
+      // Return original item if resolution fails
+      return item;
+    } catch (error) {
+      process.stderr.write(
+        `[DEBUG resolveCompletionItem] Error resolving completion item: ${error}\n`
+      );
+      return item;
+    }
+  }
+
+  /**
+   * Helper method to get completions at a specific position
+   */
+  private async getCompletionAtPosition(
+    filePath: string,
+    position: Position,
+    triggerCharacter?: string
+  ): Promise<CompletionItem[]> {
+    const serverState = await this.getServer(filePath);
+    await serverState.initializationPromise;
+    await this.ensureFileOpen(serverState, filePath);
+
+    const context: CompletionContext = {
+      triggerKind: triggerCharacter
+        ? CompletionTriggerKind.TriggerCharacter
+        : CompletionTriggerKind.Invoked,
+      triggerCharacter: triggerCharacter,
+    };
+
+    const result = await this.sendRequest(serverState.process, 'textDocument/completion', {
+      textDocument: { uri: pathToUri(filePath) },
+      position: position,
+      context: context,
+    });
+
+    // Handle both CompletionList and CompletionItem[] responses
+    if (Array.isArray(result)) {
+      return result as CompletionItem[];
+    }
+
+    if (result && typeof result === 'object' && 'items' in result) {
+      const completionList = result as CompletionList;
+      return completionList.items || [];
+    }
+
+    return [];
+  }
+
+  /**
+   * Generate multiple position combinations for better symbol resolution
+   * This handles different indexing conventions used by various editors and clients
+   */
+  private generateMultiPositions(position: Position): Position[] {
+    const originalLine = position.line;
+    const originalCharacter = position.character;
+
+    return [
+      // Original position (already 0-indexed)
+      { line: originalLine, character: originalCharacter },
+      // Adjust character by -1 (in case character was 1-indexed)
+      { line: originalLine, character: Math.max(0, originalCharacter - 1) },
+      // Adjust line by -1 (in case line was 1-indexed)
+      { line: Math.max(0, originalLine - 1), character: originalCharacter },
+      // Adjust both line and character by -1 (both were 1-indexed)
+      { line: Math.max(0, originalLine - 1), character: Math.max(0, originalCharacter - 1) },
+    ];
+  }
+
+  /**
+   * Convert completion item kind to readable string
+   */
+  completionItemKindToString(kind: CompletionItemKind): string {
+    const kindMap: Record<CompletionItemKind, string> = {
+      [CompletionItemKind.Text]: 'text',
+      [CompletionItemKind.Method]: 'method',
+      [CompletionItemKind.Function]: 'function',
+      [CompletionItemKind.Constructor]: 'constructor',
+      [CompletionItemKind.Field]: 'field',
+      [CompletionItemKind.Variable]: 'variable',
+      [CompletionItemKind.Class]: 'class',
+      [CompletionItemKind.Interface]: 'interface',
+      [CompletionItemKind.Module]: 'module',
+      [CompletionItemKind.Property]: 'property',
+      [CompletionItemKind.Unit]: 'unit',
+      [CompletionItemKind.Value]: 'value',
+      [CompletionItemKind.Enum]: 'enum',
+      [CompletionItemKind.Keyword]: 'keyword',
+      [CompletionItemKind.Snippet]: 'snippet',
+      [CompletionItemKind.Color]: 'color',
+      [CompletionItemKind.File]: 'file',
+      [CompletionItemKind.Reference]: 'reference',
+      [CompletionItemKind.Folder]: 'folder',
+      [CompletionItemKind.EnumMember]: 'enumMember',
+      [CompletionItemKind.Constant]: 'constant',
+      [CompletionItemKind.Struct]: 'struct',
+      [CompletionItemKind.Event]: 'event',
+      [CompletionItemKind.Operator]: 'operator',
+      [CompletionItemKind.TypeParameter]: 'typeParameter',
+    };
+
+    return kindMap[kind] || 'unknown';
   }
 
   private async getCompletionItem(
@@ -2067,85 +2161,6 @@ export class LSPClient {
     }
 
     return Object.keys(typeInfo).length > 0 ? typeInfo : undefined;
-  }
-
-  private async findParameterPositions(
-    filePath: string,
-    methodPosition: Position,
-    paramCount: number
-  ): Promise<(Position | null)[]> {
-    try {
-      // Read the file content
-      const fileContent = await readFile(filePath, 'utf-8');
-      const lines = fileContent.split('\n');
-
-      // Start from the method position and look for the parameter list
-      const currentLine = methodPosition.line;
-      const currentChar = methodPosition.character;
-      let parenDepth = 0;
-      let inParams = false;
-      const paramPositions: (Position | null)[] = [];
-      let currentParamStart: Position | null = null;
-
-      // Simple state machine to find parameter positions
-      for (
-        let lineIdx = currentLine;
-        lineIdx < lines.length && paramPositions.length < paramCount;
-        lineIdx++
-      ) {
-        const line = lines[lineIdx];
-        if (!line) continue;
-        const startChar = lineIdx === currentLine ? currentChar : 0;
-
-        for (let charIdx = startChar; charIdx < line.length; charIdx++) {
-          const char = line[charIdx];
-
-          if (char === '(') {
-            parenDepth++;
-            if (parenDepth === 1) {
-              inParams = true;
-            }
-          } else if (char === ')') {
-            parenDepth--;
-            if (parenDepth === 0) {
-              // End of parameters
-              return paramPositions.length < paramCount
-                ? [...paramPositions, ...new Array(paramCount - paramPositions.length).fill(null)]
-                : paramPositions;
-            }
-          } else if (inParams && parenDepth === 1) {
-            // Look for type annotations after ':'
-            if (char === ':' && currentParamStart === null) {
-              // Found a type annotation, the type starts after the colon
-              let typeStartIdx = charIdx + 1;
-              while (typeStartIdx < line.length && /\s/.test(line[typeStartIdx] || '')) {
-                typeStartIdx++;
-              }
-              if (typeStartIdx < line.length) {
-                currentParamStart = { line: lineIdx, character: typeStartIdx };
-              }
-            } else if (char === ',' || char === ')') {
-              // End of current parameter
-              if (currentParamStart) {
-                paramPositions.push(currentParamStart);
-                currentParamStart = null;
-              }
-            }
-          }
-        }
-      }
-
-      // Fill remaining positions with null
-      while (paramPositions.length < paramCount) {
-        paramPositions.push(null);
-      }
-
-      return paramPositions;
-    } catch (error) {
-      // If we can't read the file or parse positions, return null positions
-      process.stderr.write(`[DEBUG findParameterPositions] Error: ${error}\n`);
-      return new Array(paramCount).fill(null);
-    }
   }
 
   private parseParameters(paramsString: string): ParameterInfo[] {
@@ -2666,7 +2681,7 @@ export class LSPClient {
         symbols: [],
         debugInfo: {
           rootUri: rootUri || 'N/A - Error occurred',
-          serverCount: availableServers?.length || servers.length,
+          serverCount: availableServers?.length || this.servers.size,
           totalSymbolsFound: 0,
           filteredSymbolsCount: 0,
           searchQuery: finalQuery || typeName,

@@ -97,6 +97,93 @@ Returns:
 - JSDoc comments if available
 - Overload signatures if applicable
 
+## Code Completion
+
+### Getting Autocomplete Suggestions
+
+Get code completion suggestions at any position in a file:
+
+```
+get_completion:
+  file_path: "src/api/user.ts"
+  line: 25
+  character: 10
+```
+
+This returns organized completion suggestions:
+- Methods and functions with their signatures
+- Properties and fields with their types
+- Variables and constants in scope
+- Available imports and auto-import suggestions
+
+### Trigger Character Completion
+
+Get completions triggered by specific characters like `.` or `:`:
+
+```
+get_completion:
+  file_path: "src/api/user.ts"
+  line: 25
+  character: 12
+  trigger_character: "."
+```
+
+Useful for:
+- Object property/method completion after `.`
+- Type annotations after `:`
+- Module imports after accessing properties
+
+### Detailed Completion Information
+
+Get comprehensive completion details including documentation:
+
+```
+get_completion:
+  file_path: "src/api/user.ts"
+  line: 25
+  character: 10
+  resolve_details: true
+  include_auto_import: true
+  max_results: 25
+```
+
+Returns:
+- Detailed documentation for each completion item
+- Auto-import suggestions for external symbols
+- Parameter information for methods and functions
+- Type information and definitions
+
+### Completion for Development Workflows
+
+**When writing new code:**
+```
+get_completion:
+  file_path: "src/components/Button.tsx"
+  line: 15
+  character: 8
+  trigger_character: "."
+  max_results: 10
+```
+
+**When exploring APIs:**
+```
+get_completion:
+  file_path: "src/services/api.ts"
+  line: 42
+  character: 15
+  resolve_details: true
+  include_auto_import: true
+```
+
+**When implementing interfaces:**
+```
+get_completion:
+  file_path: "src/models/User.ts"
+  line: 20
+  character: 5
+  resolve_details: true
+```
+
 ## Workspace Discovery
 
 ### Finding Symbols Across the Workspace
@@ -270,12 +357,19 @@ When exploring unknown codebases:
    - Use `get_document_symbols` for file-level exploration  
    - Use `get_class_members` for detailed class analysis
    - Use `get_method_signature` for complete API documentation
+   - Use `get_completion` for interactive code development and exploration
 
-5. **Start with discovery tools**: When exploring unknown codebases, begin with `search_type` and `get_document_symbols` to understand the overall structure.
+5. **Use completion effectively**: 
+   - Enable `resolve_details` when you need comprehensive information about completion items
+   - Use `trigger_character` for context-specific completions (e.g., after `.` or `:`)
+   - Set appropriate `max_results` to limit output for better readability
+   - Enable `include_auto_import` when working with external libraries
 
-6. **Use wildcards effectively**: Leverage `*` and `?` in `search_type` for pattern-based discovery.
+6. **Start with discovery tools**: When exploring unknown codebases, begin with `search_type` and `get_document_symbols` to understand the overall structure.
 
-7. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
+7. **Use wildcards effectively**: Leverage `*` and `?` in `search_type` for pattern-based discovery.
+
+8. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
 
 ## Troubleshooting
 

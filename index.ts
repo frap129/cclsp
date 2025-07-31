@@ -286,6 +286,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path'],
         },
       },
+      {
+        name: 'get_completion',
+        description: 'Get code completion suggestions at a specific position in a file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file',
+            },
+            line: {
+              type: 'number',
+              description: 'The line number (1-indexed)',
+            },
+            character: {
+              type: 'number',
+              description: 'The character position (1-indexed)',
+            },
+            trigger_character: {
+              type: 'string',
+              description: 'Optional: The character that triggered completion (e.g., ".", ":")',
+            },
+            resolve_details: {
+              type: 'boolean',
+              description:
+                'Whether to resolve additional details like documentation and auto-imports',
+              default: false,
+            },
+            include_auto_import: {
+              type: 'boolean',
+              description: 'Whether to include auto-import suggestions',
+              default: false,
+            },
+            max_results: {
+              type: 'number',
+              description: 'Maximum number of completion items to return',
+              default: 50,
+            },
+          },
+          required: ['file_path', 'line', 'character'],
+        },
+      },
     ],
   };
 });
@@ -1094,6 +1136,166 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting document symbols: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_completion') {
+      const {
+        file_path,
+        line,
+        character,
+        trigger_character,
+        resolve_details = false,
+        include_auto_import = false,
+        max_results = 50,
+      } = args as {
+        file_path: string;
+        line: number;
+        character: number;
+        trigger_character?: string;
+        resolve_details?: boolean;
+        include_auto_import?: boolean;
+        max_results?: number;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        const completions = await lspClient.getCompletion(
+          absolutePath,
+          { line: line - 1, character: character - 1 }, // Convert to 0-indexed
+          trigger_character,
+          max_results
+        );
+
+        if (completions.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No code completion suggestions found at ${file_path}:${line}:${character}. Please ensure the language server is properly configured and the position is valid.`,
+              },
+            ],
+          };
+        }
+
+        // Optionally resolve additional details
+        let resolvedCompletions = completions;
+        if (resolve_details) {
+          try {
+            resolvedCompletions = await Promise.all(
+              completions.map((item) => lspClient.resolveCompletionItem(absolutePath, item))
+            );
+          } catch (resolveError) {
+            process.stderr.write(
+              `[DEBUG get_completion] Failed to resolve completion items: ${resolveError}\n`
+            );
+            // Continue with unresolved items
+          }
+        }
+
+        // Group completions by kind for better organization
+        const completionsByKind = new Map<string, typeof resolvedCompletions>();
+
+        for (const completion of resolvedCompletions) {
+          const kind = completion.kind
+            ? lspClient.completionItemKindToString(completion.kind)
+            : 'other';
+
+          if (!completionsByKind.has(kind)) {
+            completionsByKind.set(kind, []);
+          }
+          completionsByKind.get(kind)?.push(completion);
+        }
+
+        // Format output by grouping similar completion types
+        const output: string[] = [
+          `Found ${completions.length} completion suggestion${completions.length === 1 ? '' : 's'} at line ${line}, character ${character}:`,
+        ];
+
+        // Define preferred order for completion kinds
+        const kindOrder = [
+          'method',
+          'function',
+          'property',
+          'field',
+          'variable',
+          'constant',
+          'class',
+          'interface',
+          'enum',
+          'module',
+        ];
+        const sortedKinds = Array.from(completionsByKind.keys()).sort((a, b) => {
+          const aIndex = kindOrder.indexOf(a);
+          const bIndex = kindOrder.indexOf(b);
+          if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+
+        for (const kind of sortedKinds) {
+          const items = completionsByKind.get(kind);
+          if (!items || items.length === 0) continue;
+
+          const capitalizedKind = kind.charAt(0).toUpperCase() + kind.slice(1);
+          output.push(`\n${capitalizedKind}${items.length === 1 ? '' : 's'}:`);
+
+          for (const item of items.slice(0, 10)) {
+            // Limit to first 10 per category
+            let line = `• ${item.label}`;
+
+            if (item.detail) {
+              line += `: ${item.detail}`;
+            }
+
+            if (item.documentation) {
+              const doc =
+                typeof item.documentation === 'string'
+                  ? item.documentation
+                  : item.documentation.value;
+              if (doc && doc.length > 0) {
+                // Truncate long documentation
+                const shortDoc = doc.length > 100 ? `${doc.substring(0, 100)}...` : doc;
+                line += `\n  ${shortDoc.replace(/\n/g, ' ')}`;
+              }
+            }
+
+            if (
+              include_auto_import &&
+              item.additionalTextEdits &&
+              item.additionalTextEdits.length > 0
+            ) {
+              line += '\n  Auto-import available';
+            }
+
+            output.push(line);
+          }
+
+          if (items.length > 10) {
+            output.push(
+              `  ... and ${items.length - 10} more ${kind}${items.length - 10 === 1 ? '' : 's'}`
+            );
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output.join('\n'),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting code completion: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

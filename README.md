@@ -466,6 +466,27 @@ Get all symbols (classes, functions, variables, etc.) in a document with their l
 - **Location information**: Provides exact line and character positions
 - **Discovery-oriented**: Ideal for code exploration and understanding file architecture
 
+### `get_completion`
+
+Get code completion suggestions at a specific position in a file. Provides intelligent autocomplete functionality to assist with code development and exploration.
+
+**Parameters:**
+- `file_path`: The path to the file
+- `line`: The line number (1-indexed)
+- `character`: The character position (1-indexed)
+- `trigger_character`: Optional - The character that triggered completion (e.g., ".", ":")
+- `resolve_details`: Whether to resolve additional details like documentation and auto-imports (default: false)
+- `include_auto_import`: Whether to include auto-import suggestions (default: false)
+- `max_results`: Maximum number of completion items to return (default: 50)
+
+**Features:**
+- **Context-aware suggestions**: Provides relevant completions based on current scope and position
+- **Type information**: Shows parameter types and return types for methods and functions
+- **Documentation**: Includes brief descriptions when available and when resolve_details is enabled
+- **Auto-import support**: Suggests imports for external symbols when include_auto_import is enabled
+- **Organized output**: Groups completions by kind (methods, properties, variables, etc.)
+- **Multi-position support**: Automatically tries different position combinations for better accuracy
+
 ## 💡 Real-world Examples
 
 ### Finding Function Definitions
@@ -610,6 +631,42 @@ Functions:
 Constants:
 • JWT_ALGORITHM: string at line 5:1
 • DEFAULT_EXPIRY: number at line 6:1
+```
+
+### Getting Code Completion
+
+When you need autocomplete suggestions while writing code:
+
+```
+Claude: I need to see what methods are available on this user object
+> Using cclsp.get_completion at line 25, character 10
+
+Found 12 completion suggestions at line 25, character 10:
+
+Methods:
+• toString(): string
+  Returns a string representation of the object
+  
+• save(): Promise<User>
+  Saves the user to the database
+  
+• delete(): Promise<void>
+  Removes the user from the database
+
+Properties:
+• id: string
+  Unique identifier for the user
+  
+• email: string
+  User's email address
+  
+• name: string
+  User's display name
+
+Functions:
+• validateEmail(email: string): boolean
+  Validates an email address format
+  Auto-import available
 ```
 
 ## 🔍 Troubleshooting
