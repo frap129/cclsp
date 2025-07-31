@@ -12,14 +12,17 @@ import type {
   Diagnostic,
   DocumentDiagnosticReport,
   DocumentSymbol,
+  FormattingOptions,
   LSPError,
   LSPLocation,
   LSPServerConfig,
   Location,
   ParameterInfo,
   Position,
+  Range,
   SymbolInformation,
   SymbolMatch,
+  TextEdit,
   TypeInfo,
   WorkspaceSearchResult,
 } from './types.js';
@@ -2123,6 +2126,188 @@ export class LSPClient {
     return [];
   }
 
+  /**
+   * Format an entire document using LSP textDocument/formatting
+   */
+  async formatDocument(filePath: string, options: FormattingOptions): Promise<TextEdit[]> {
+    process.stderr.write(`[DEBUG formatDocument] Formatting document ${filePath}\n`);
+
+    const serverState = await this.getServer(filePath);
+    await serverState.initializationPromise;
+    await this.ensureFileOpen(serverState, filePath);
+
+    try {
+      const result = await this.sendRequest(serverState.process, 'textDocument/formatting', {
+        textDocument: { uri: pathToUri(filePath) },
+        options: options,
+      });
+
+      process.stderr.write(
+        `[DEBUG formatDocument] Received ${Array.isArray(result) ? result.length : 0} text edits\n`
+      );
+
+      if (Array.isArray(result)) {
+        return result as TextEdit[];
+      }
+
+      return [];
+    } catch (error) {
+      process.stderr.write(`[DEBUG formatDocument] Error formatting document: ${error}\n`);
+      throw error;
+    }
+  }
+
+  /**
+   * Format a specific range in a document using LSP textDocument/rangeFormatting
+   */
+  async formatRange(
+    filePath: string,
+    range: Range,
+    options: FormattingOptions
+  ): Promise<TextEdit[]> {
+    process.stderr.write(
+      `[DEBUG formatRange] Formatting range ${range.start.line}-${range.end.line} in ${filePath}\n`
+    );
+
+    const serverState = await this.getServer(filePath);
+    await serverState.initializationPromise;
+    await this.ensureFileOpen(serverState, filePath);
+
+    try {
+      const result = await this.sendRequest(serverState.process, 'textDocument/rangeFormatting', {
+        textDocument: { uri: pathToUri(filePath) },
+        range: range,
+        options: options,
+      });
+
+      process.stderr.write(
+        `[DEBUG formatRange] Received ${Array.isArray(result) ? result.length : 0} text edits\n`
+      );
+
+      if (Array.isArray(result)) {
+        return result as TextEdit[];
+      }
+
+      return [];
+    } catch (error) {
+      process.stderr.write(`[DEBUG formatRange] Error formatting range: ${error}\n`);
+      throw error;
+    }
+  }
+
+  /**
+   * Apply text edits to file content and optionally write to file
+   */
+  async applyTextEdits(
+    filePath: string,
+    textEdits: TextEdit[],
+    applyToFile = false
+  ): Promise<{ content: string; summary: string[] }> {
+    process.stderr.write(
+      `[DEBUG applyTextEdits] Applying ${textEdits.length} edits to ${filePath}\n`
+    );
+
+    // Read current file content
+    let content: string;
+    try {
+      content = readFileSync(filePath, 'utf-8');
+    } catch (error) {
+      throw new Error(`Failed to read file ${filePath}: ${error}`);
+    }
+
+    // Sort edits by position (reverse order to apply from end to beginning)
+    const sortedEdits = [...textEdits].sort((a, b) => {
+      if (a.range.start.line !== b.range.start.line) {
+        return b.range.start.line - a.range.start.line;
+      }
+      return b.range.start.character - a.range.start.character;
+    });
+
+    const lines = content.split('\n');
+    const summary: string[] = [];
+
+    // Apply edits in reverse order to preserve line/character positions
+    for (const edit of sortedEdits) {
+      const { start, end } = edit.range;
+      const newText = edit.newText;
+
+      // Validate range
+      if (start.line < 0 || start.line >= lines.length || end.line < 0 || end.line > lines.length) {
+        process.stderr.write(
+          `[DEBUG applyTextEdits] Skipping invalid range: ${start.line}:${start.character}-${end.line}:${end.character}\n`
+        );
+        continue;
+      }
+
+      // Create summary of changes
+      if (start.line === end.line) {
+        const line = lines[start.line];
+        if (line !== undefined) {
+          const originalText = line.substring(start.character, end.character);
+          if (originalText !== newText) {
+            if (originalText.trim() === '' && newText.trim() !== '') {
+              summary.push(`• Line ${start.line + 1}: Added content`);
+            } else if (originalText.trim() !== '' && newText.trim() === '') {
+              summary.push(`• Line ${start.line + 1}: Removed content`);
+            } else if (originalText.match(/^\s+$/) && newText.match(/^\s+$/)) {
+              summary.push(`• Line ${start.line + 1}: Adjusted indentation`);
+            } else {
+              summary.push(`• Line ${start.line + 1}: Modified content`);
+            }
+          }
+        }
+      } else {
+        summary.push(`• Lines ${start.line + 1}-${end.line + 1}: Multi-line edit`);
+      }
+
+      // Apply the edit
+      if (start.line === end.line) {
+        // Single line edit
+        const line = lines[start.line];
+        if (line !== undefined) {
+          lines[start.line] =
+            line.substring(0, start.character) + newText + line.substring(end.character);
+        }
+      } else {
+        // Multi-line edit
+        const startLineContent = lines[start.line];
+        const endLineContent = lines[end.line];
+        if (startLineContent !== undefined && endLineContent !== undefined) {
+          const startLine = startLineContent.substring(0, start.character);
+          const endLine = endLineContent.substring(end.character);
+          const newLines = newText.split('\n');
+
+          // Replace the range with new content
+          lines.splice(
+            start.line,
+            end.line - start.line + 1,
+            startLine + newLines[0],
+            ...newLines.slice(1, -1),
+            newLines[newLines.length - 1] + endLine
+          );
+        }
+      }
+    }
+
+    const formattedContent = lines.join('\n');
+
+    // Write to file if requested
+    if (applyToFile) {
+      try {
+        process.stderr.write(`[DEBUG applyTextEdits] Writing formatted content to ${filePath}\n`);
+        require('node:fs').writeFileSync(filePath, formattedContent, 'utf-8');
+        summary.push(`File ${filePath} has been updated`);
+      } catch (error) {
+        throw new Error(`Failed to write formatted content to ${filePath}: ${error}`);
+      }
+    }
+
+    return {
+      content: formattedContent,
+      summary: summary.length > 0 ? summary : ['No formatting changes needed'],
+    };
+  }
+
   private parseTypeInfo(hoverText: string | undefined, symbolName: string): TypeInfo | undefined {
     if (!hoverText) return undefined;
 
@@ -2655,11 +2840,11 @@ export class LSPClient {
           process.stderr.write(
             `[DEBUG findTypeInWorkspace] Found ${methodSymbols.length} method/function symbols:\n`
           );
-          methodSymbols.slice(0, 5).forEach((sym) => {
+          for (const sym of methodSymbols.slice(0, 5)) {
             process.stderr.write(
               `[DEBUG findTypeInWorkspace]   - ${sym.name} (${sym.containerName || 'global'})\n`
             );
-          });
+          }
         }
       }
 
@@ -2703,7 +2888,7 @@ export class LSPClient {
         });
 
         if (testSymbols && Array.isArray(testSymbols)) {
-          serverState.filesDiscovered = (testSymbols as any[]).length;
+          serverState.filesDiscovered = testSymbols.length;
           process.stderr.write(
             `[DEBUG] Initial symbol discovery: ${serverState.filesDiscovered} symbols\n`
           );
@@ -2726,11 +2911,14 @@ export class LSPClient {
     }, 1000); // Wait 1 second after initialization
   }
 
-  private handleWorkspaceProgress(params: any, serverState: ServerState): void {
-    if (!params || !params.token) return;
+  private handleWorkspaceProgress(params: unknown, serverState: ServerState): void {
+    if (!params || typeof params !== 'object' || !params || !('token' in params)) return;
 
-    if (params.value) {
-      const { kind, title, message, percentage } = params.value;
+    const progressParams = params as {
+      value?: { kind?: string; title?: string; message?: string; percentage?: number };
+    };
+    if (progressParams.value) {
+      const { kind, title, message, percentage } = progressParams.value;
 
       if (title && (title.includes('index') || title.includes('Index'))) {
         process.stderr.write(
@@ -2761,7 +2949,7 @@ export class LSPClient {
         });
 
         if (testSymbols && Array.isArray(testSymbols)) {
-          const currentCount = (testSymbols as any[]).length;
+          const currentCount = testSymbols.length;
 
           if (currentCount > serverState.filesDiscovered) {
             serverState.filesDiscovered = currentCount;

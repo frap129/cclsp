@@ -328,6 +328,58 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path', 'line', 'character'],
         },
       },
+      {
+        name: 'format_document',
+        description: 'Format a document or specific range with configurable formatting options',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file to format',
+            },
+            start_line: {
+              type: 'number',
+              description: 'Optional: Start line for range formatting (1-indexed)',
+            },
+            end_line: {
+              type: 'number',
+              description: 'Optional: End line for range formatting (1-indexed)',
+            },
+            tab_size: {
+              type: 'number',
+              description: 'Number of spaces per tab',
+              default: 2,
+            },
+            insert_spaces: {
+              type: 'boolean',
+              description: 'Use spaces instead of tabs',
+              default: true,
+            },
+            trim_trailing_whitespace: {
+              type: 'boolean',
+              description: 'Remove trailing whitespace',
+              default: true,
+            },
+            insert_final_newline: {
+              type: 'boolean',
+              description: 'Insert final newline at end of file',
+              default: true,
+            },
+            trim_final_newlines: {
+              type: 'boolean',
+              description: 'Trim extra newlines at end of file',
+              default: true,
+            },
+            apply_changes: {
+              type: 'boolean',
+              description: 'Apply formatting changes to the file (default: preview only)',
+              default: false,
+            },
+          },
+          required: ['file_path'],
+        },
+      },
     ],
   };
 });
@@ -1296,6 +1348,122 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting code completion: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'format_document') {
+      const {
+        file_path,
+        start_line,
+        end_line,
+        tab_size = 2,
+        insert_spaces = true,
+        trim_trailing_whitespace = true,
+        insert_final_newline = true,
+        trim_final_newlines = true,
+        apply_changes = false,
+      } = args as {
+        file_path: string;
+        start_line?: number;
+        end_line?: number;
+        tab_size?: number;
+        insert_spaces?: boolean;
+        trim_trailing_whitespace?: boolean;
+        insert_final_newline?: boolean;
+        trim_final_newlines?: boolean;
+        apply_changes?: boolean;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        // Build formatting options
+        const formattingOptions = {
+          tabSize: tab_size,
+          insertSpaces: insert_spaces,
+          trimTrailingWhitespace: trim_trailing_whitespace,
+          insertFinalNewline: insert_final_newline,
+          trimFinalNewlines: trim_final_newlines,
+        };
+
+        let textEdits: import('./src/types.js').TextEdit[] = [];
+
+        // Determine if this is range formatting or full document formatting
+        if (start_line !== undefined && end_line !== undefined) {
+          // Range formatting
+          const range = {
+            start: { line: start_line - 1, character: 0 }, // Convert to 0-indexed
+            end: { line: end_line - 1, character: Number.MAX_SAFE_INTEGER }, // End of line
+          };
+
+          process.stderr.write(
+            `[DEBUG format_document] Formatting range ${start_line}-${end_line} in ${file_path}\n`
+          );
+
+          textEdits = await lspClient.formatRange(absolutePath, range, formattingOptions);
+        } else {
+          // Full document formatting
+          process.stderr.write(`[DEBUG format_document] Formatting entire document ${file_path}\n`);
+
+          textEdits = await lspClient.formatDocument(absolutePath, formattingOptions);
+        }
+
+        if (textEdits.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No formatting changes needed for ${file_path}. The file is already properly formatted.`,
+              },
+            ],
+          };
+        }
+
+        // Apply text edits and get summary
+        const { content: formattedContent, summary } = await lspClient.applyTextEdits(
+          absolutePath,
+          textEdits,
+          apply_changes
+        );
+
+        // Prepare response
+        const changesSummary = summary.join('\n');
+        const totalEdits = textEdits.length;
+
+        let responseText = '';
+
+        if (start_line !== undefined && end_line !== undefined) {
+          responseText += `Formatting completed for lines ${start_line}-${end_line} in ${file_path}:\n\n`;
+        } else {
+          responseText += `Formatting completed for ${file_path}:\n\n`;
+        }
+
+        responseText += `Changes applied:\n${changesSummary}\n\n`;
+        responseText += `Total: ${totalEdits} formatting edit${totalEdits === 1 ? '' : 's'}\n`;
+
+        if (apply_changes) {
+          responseText += 'File modified: Yes';
+        } else {
+          responseText += 'File modified: No (preview mode)\n';
+          responseText += '\nTo apply these changes, set apply_changes: true';
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: responseText,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error formatting document: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

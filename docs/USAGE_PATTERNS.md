@@ -184,6 +184,152 @@ get_completion:
   resolve_details: true
 ```
 
+## Document Formatting
+
+### Basic Document Formatting
+
+Format an entire document with default options:
+
+```
+format_document:
+  file_path: "src/components/Button.tsx"
+```
+
+This applies standard formatting:
+- 2-space indentation
+- Spaces instead of tabs
+- Trailing whitespace removal
+- Final newline insertion
+- Preview mode (no changes applied)
+
+### Range Formatting
+
+Format only specific lines in a document:
+
+```
+format_document:
+  file_path: "src/utils/helpers.ts"
+  start_line: 25
+  end_line: 45
+```
+
+Useful for:
+- Formatting newly added code sections
+- Cleaning up specific function definitions
+- Applying consistent style to modified regions
+
+### Custom Formatting Options
+
+Specify custom formatting preferences:
+
+```
+format_document:
+  file_path: "src/legacy/old-code.js"
+  tab_size: 4
+  insert_spaces: false  # use tabs instead of spaces
+  trim_trailing_whitespace: true
+  insert_final_newline: false
+  apply_changes: true  # actually apply the changes
+```
+
+### Preview vs Apply Mode
+
+**Preview Mode (default):**
+```
+format_document:
+  file_path: "src/api/client.ts"
+  apply_changes: false  # default
+```
+
+Shows what changes would be made without modifying the file. Useful for:
+- Reviewing formatting changes before applying
+- Understanding what the formatter will do
+- Safe exploration of formatting options
+
+**Apply Mode:**
+```
+format_document:
+  file_path: "src/api/client.ts"
+  apply_changes: true
+```
+
+Actually writes the formatted content to the file. Use when:
+- You've reviewed the changes and want to apply them
+- You trust the formatting settings
+- You're ready to commit the formatting changes
+
+### Formatting Different File Types
+
+**TypeScript/JavaScript:**
+```
+format_document:
+  file_path: "src/components/Header.tsx"
+  tab_size: 2
+  insert_spaces: true
+  trim_trailing_whitespace: true
+```
+
+**Python:**
+```
+format_document:
+  file_path: "src/main.py"
+  tab_size: 4
+  insert_spaces: true
+  trim_final_newlines: true
+```
+
+**Go:**
+```
+format_document:
+  file_path: "cmd/server/main.go"
+  tab_size: 8
+  insert_spaces: false  # Go prefers tabs
+```
+
+### Workflow Integration
+
+**Before committing code:**
+```
+# 1. Check current formatting
+format_document:
+  file_path: "src/services/api.ts"
+  apply_changes: false
+
+# 2. Apply if changes look good
+format_document:
+  file_path: "src/services/api.ts"
+  apply_changes: true
+```
+
+**Batch formatting workflow:**
+```
+# Format multiple files with consistent settings
+format_document:
+  file_path: "src/utils/date.ts"
+  tab_size: 2
+  insert_spaces: true
+  apply_changes: true
+
+format_document:
+  file_path: "src/utils/string.ts"
+  tab_size: 2
+  insert_spaces: true
+  apply_changes: true
+```
+
+**Project standardization:**
+```
+# Apply project-wide formatting standards
+format_document:
+  file_path: "src/index.ts"
+  tab_size: 2
+  insert_spaces: true
+  trim_trailing_whitespace: true
+  insert_final_newline: true
+  trim_final_newlines: true
+  apply_changes: true
+```
+
 ## Workspace Discovery
 
 ### Finding Symbols Across the Workspace
@@ -370,6 +516,18 @@ When exploring unknown codebases:
 7. **Use wildcards effectively**: Leverage `*` and `?` in `search_type` for pattern-based discovery.
 
 8. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
+
+9. **Use formatting strategically**: 
+   - Always use preview mode first to review formatting changes before applying
+   - Use `format_document` before code reviews to ensure consistent style
+   - Apply range formatting for localized changes to avoid unnecessary diffs
+   - Configure formatting options to match your project's style guide
+   - Use formatting as the final step in your development workflow
+
+10. **Choose appropriate formatting scope**:
+    - Use full document formatting for new files or major refactoring
+    - Use range formatting for specific function or class modifications
+    - Consider the impact on version control diffs when formatting entire files
 
 ## Troubleshooting
 

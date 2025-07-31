@@ -296,3 +296,17 @@ export enum CompletionTriggerKind {
   TriggerCharacter = 2,
   TriggerForIncompleteCompletions = 3,
 }
+
+export interface FormattingOptions {
+  tabSize: number;
+  insertSpaces: boolean;
+  trimTrailingWhitespace?: boolean;
+  insertFinalNewline?: boolean;
+  trimFinalNewlines?: boolean;
+  [key: string]: boolean | number | string | undefined;
+}
+
+export interface Range {
+  start: Position;
+  end: Position;
+}

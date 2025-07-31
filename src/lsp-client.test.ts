@@ -122,7 +122,9 @@ describe('LSPClient', () => {
 
       // Mock file scanning functions to avoid filesystem operations
       const fileScanner = await import('./file-scanner.js');
-      const loadGitignoreSpy = spyOn(fileScanner, 'loadGitignore').mockResolvedValue(() => false);
+      const ignore = await import('ignore');
+      const mockIgnore = ignore.default().add([]);
+      const loadGitignoreSpy = spyOn(fileScanner, 'loadGitignore').mockResolvedValue(mockIgnore);
       const scanDirSpy = spyOn(fileScanner, 'scanDirectoryForExtensions').mockResolvedValue(
         new Set(['ts', 'js'])
       );
@@ -155,7 +157,9 @@ describe('LSPClient', () => {
 
       // Mock file scanning functions
       const fileScanner = await import('./file-scanner.js');
-      const loadGitignoreSpy = spyOn(fileScanner, 'loadGitignore').mockResolvedValue(() => false);
+      const ignore = await import('ignore');
+      const mockIgnore = ignore.default().add([]);
+      const loadGitignoreSpy = spyOn(fileScanner, 'loadGitignore').mockResolvedValue(mockIgnore);
       const scanDirSpy = spyOn(fileScanner, 'scanDirectoryForExtensions').mockResolvedValue(
         new Set(['ts', 'js'])
       );

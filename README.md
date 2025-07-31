@@ -487,6 +487,30 @@ Get code completion suggestions at a specific position in a file. Provides intel
 - **Organized output**: Groups completions by kind (methods, properties, variables, etc.)
 - **Multi-position support**: Automatically tries different position combinations for better accuracy
 
+### `format_document`
+
+Format a document or specific range with configurable formatting options. Provides consistent code style and formatting using the LSP server's formatting capabilities.
+
+**Parameters:**
+- `file_path`: The path to the file to format
+- `start_line`: Optional - Start line for range formatting (1-indexed)
+- `end_line`: Optional - End line for range formatting (1-indexed)
+- `tab_size`: Number of spaces per tab (default: 2)
+- `insert_spaces`: Use spaces instead of tabs (default: true)
+- `trim_trailing_whitespace`: Remove trailing whitespace (default: true)
+- `insert_final_newline`: Insert final newline at end of file (default: true)
+- `trim_final_newlines`: Trim extra newlines at end of file (default: true)
+- `apply_changes`: Apply formatting changes to the file (default: false - preview only)
+
+**Features:**
+- **Full document formatting**: Format entire files with consistent style
+- **Range formatting**: Format specific line ranges only
+- **Preview mode**: Show formatting changes without applying them (default)
+- **Apply mode**: Optionally apply changes directly to files
+- **Configurable options**: Customizable indentation, whitespace, and newline handling
+- **Detailed change summary**: Shows what formatting changes were made
+- **Multiple language support**: Works with any LSP server that supports formatting
+
 ## 💡 Real-world Examples
 
 ### Finding Function Definitions
@@ -667,6 +691,67 @@ Functions:
 • validateEmail(email: string): boolean
   Validates an email address format
   Auto-import available
+```
+
+### Formatting Documents
+
+When you need to format code for consistency:
+
+```
+Claude: I need to format this TypeScript file to follow our coding standards
+> Using cclsp.format_document with file_path: "src/utils/helpers.ts"
+
+Formatting completed for src/utils/helpers.ts:
+
+Changes applied:
+• Line 5: Adjusted indentation from 4 to 2 spaces
+• Line 12: Trailing whitespace removed
+• Line 18: Missing semicolon added
+• Line 25: Line break adjusted for function parameters
+
+Total: 4 formatting edits
+File modified: No (preview mode)
+
+To apply these changes, set apply_changes: true
+```
+
+### Range Formatting
+
+When you only need to format specific lines:
+
+```
+Claude: I need to format just the function definition on lines 15-20
+> Using cclsp.format_document with start_line: 15, end_line: 20, apply_changes: true
+
+Formatting completed for lines 15-20 in src/components/button.tsx:
+
+Changes applied:
+• Line 16: Adjusted indentation
+• Line 18: Added missing spaces around operators
+• Line 19: Formatted function parameters
+
+Total: 3 formatting edits
+File modified: Yes
+```
+
+### Custom Formatting Options
+
+When you need specific formatting preferences:
+
+```
+Claude: I need to format this file using tabs instead of spaces, with 4-space tab size
+> Using cclsp.format_document with tab_size: 4, insert_spaces: false, apply_changes: true
+
+Formatting completed for src/legacy/old-code.js:
+
+Changes applied:
+• Line 3: Converted spaces to tabs
+• Line 8: Adjusted tab indentation
+• Line 15: Converted spaces to tabs
+• Line 22: Removed trailing whitespace
+
+Total: 12 formatting edits
+File modified: Yes
 ```
 
 ## 🔍 Troubleshooting
