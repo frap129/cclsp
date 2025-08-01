@@ -431,6 +431,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path', 'start_line'],
         },
       },
+      {
+        name: 'get_hover',
+        description:
+          'Get hover information (type details, documentation) for a symbol at a specific position',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file',
+            },
+            line: {
+              type: 'number',
+              description: 'The line number (1-indexed)',
+            },
+            character: {
+              type: 'number',
+              description: 'The character position (1-indexed)',
+            },
+            symbol_name: {
+              type: 'string',
+              description: 'Optional: Symbol name to search for if position is not exact',
+            },
+          },
+          required: ['file_path', 'line', 'character'],
+        },
+      },
     ],
   };
 });
@@ -1731,6 +1758,101 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting code actions: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_hover') {
+      const { file_path, line, character, symbol_name } = args as {
+        file_path: string;
+        line: number;
+        character: number;
+        symbol_name?: string;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        // Try multiple position combinations for better symbol resolution
+        const positions = [
+          { line: line - 1, character: character - 1 }, // Both adjusted by -1
+          { line: line, character: character - 1 }, // Only character adjusted by -1
+          { line: line - 1, character: character }, // Only line adjusted by -1
+          { line: line, character: character }, // Original position
+        ];
+
+        let hoverResult = null;
+        let successfulPosition = null;
+
+        for (const position of positions) {
+          try {
+            const result = await lspClient.getHover(absolutePath, position);
+            if (result && 'contents' in result) {
+              hoverResult = result;
+              successfulPosition = position;
+              break;
+            }
+          } catch (positionError) {}
+        }
+
+        if (!hoverResult) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No hover information available for position ${line}:${character} in ${file_path}${symbol_name ? ` (searching for symbol: ${symbol_name})` : ''}`,
+              },
+            ],
+          };
+        }
+
+        // Format hover contents
+        let formattedContent = '';
+        const { contents } = hoverResult;
+
+        if (typeof contents === 'string') {
+          formattedContent = contents;
+        } else if (Array.isArray(contents)) {
+          formattedContent = contents
+            .map((item) => {
+              if (typeof item === 'string') {
+                return item;
+              }
+              if (typeof item === 'object' && item !== null && 'value' in item) {
+                return (item as { value: string }).value;
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('\n\n');
+        } else if (typeof contents === 'object' && contents !== null && 'value' in contents) {
+          formattedContent = (contents as { value: string }).value;
+        }
+
+        // Include position information if successful position differs from requested
+        const positionInfo =
+          successfulPosition &&
+          (successfulPosition.line !== line - 1 || successfulPosition.character !== character - 1)
+            ? `\n\n(Found at position ${successfulPosition.line + 1}:${successfulPosition.character + 1})`
+            : '';
+
+        const responseText = `Hover information for ${file_path} at line ${line}, character ${character}:\n\n${formattedContent}${positionInfo}`;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: responseText,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting hover information: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

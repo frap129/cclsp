@@ -16,10 +16,12 @@ import type {
   DocumentDiagnosticReport,
   DocumentSymbol,
   FormattingOptions,
+  Hover,
   LSPError,
   LSPLocation,
   LSPServerConfig,
   Location,
+  MarkupContent,
   ParameterInfo,
   Position,
   Range,
@@ -1467,7 +1469,7 @@ export class LSPClient {
           }
 
           // Get hover info for detail and type parsing
-          let hoverInfo: string | undefined;
+          let hoverInfo: Hover | null = null;
           let detail = child.detail;
 
           // For properties/fields, try type definition
@@ -1476,10 +1478,10 @@ export class LSPClient {
             (child.kind === SymbolKind.Property || child.kind === SymbolKind.Field)
           ) {
             // First get hover info to extract the type name
-            hoverInfo = await this.getHoverInfo(filePath, position);
+            hoverInfo = await this.getHover(filePath, position);
             if (hoverInfo) {
-              detail = hoverInfo;
-              typeInfo = this.parseTypeInfo(hoverInfo, child.name);
+              detail = this.extractHoverText(hoverInfo);
+              typeInfo = this.parseTypeInfo(this.extractHoverText(hoverInfo), child.name);
 
               // Now try to get the type definition location
               const typeDefinitions = await this.getTypeDefinition(filePath, position);
@@ -1503,11 +1505,11 @@ export class LSPClient {
           // Fallback to hover info if no type info yet
           if (!typeInfo) {
             if (!hoverInfo) {
-              hoverInfo = await this.getHoverInfo(filePath, position);
+              hoverInfo = await this.getHover(filePath, position);
             }
-            detail = hoverInfo || child.detail;
+            detail = this.extractHoverText(hoverInfo) || child.detail;
             if (hoverInfo) {
-              typeInfo = this.parseTypeInfo(hoverInfo, child.name);
+              typeInfo = this.parseTypeInfo(this.extractHoverText(hoverInfo), child.name);
 
               // Try to get type definition if we haven't already
               if (typeInfo && !typeInfo.definitionLocation) {
@@ -1587,7 +1589,7 @@ export class LSPClient {
             }
 
             // Get hover info for detail and type parsing
-            let hoverInfo: string | undefined;
+            let hoverInfo: Hover | null = null;
             let detail: string | undefined;
 
             // For properties/fields, try type definition
@@ -1595,10 +1597,10 @@ export class LSPClient {
               !typeInfo &&
               (symbol.kind === SymbolKind.Property || symbol.kind === SymbolKind.Field)
             ) {
-              hoverInfo = await this.getHoverInfo(filePath, position);
+              hoverInfo = await this.getHover(filePath, position);
               if (hoverInfo) {
-                detail = hoverInfo;
-                typeInfo = this.parseTypeInfo(hoverInfo, symbol.name);
+                detail = this.extractHoverText(hoverInfo);
+                typeInfo = this.parseTypeInfo(this.extractHoverText(hoverInfo), symbol.name);
 
                 // Get type definition location
                 const typeDefinitions = await this.getTypeDefinition(filePath, position);
@@ -1621,11 +1623,11 @@ export class LSPClient {
             // Fallback to hover info if no type info yet
             if (!typeInfo) {
               if (!hoverInfo) {
-                hoverInfo = await this.getHoverInfo(filePath, position);
+                hoverInfo = await this.getHover(filePath, position);
               }
-              detail = hoverInfo;
+              detail = this.extractHoverText(hoverInfo);
               if (hoverInfo) {
-                typeInfo = this.parseTypeInfo(hoverInfo, symbol.name);
+                typeInfo = this.parseTypeInfo(this.extractHoverText(hoverInfo), symbol.name);
 
                 // Try to get type definition if we haven't already
                 if (typeInfo && !typeInfo.definitionLocation) {
@@ -1773,13 +1775,14 @@ export class LSPClient {
           });
         }
       } else {
-        const hoverInfo = await this.getHoverInfo(filePath, match.position);
+        const hoverInfo = await this.getHover(filePath, match.position);
         if (hoverInfo) {
-          const typeInfo = this.parseTypeInfo(hoverInfo, match.name);
+          const hoverText = this.extractHoverText(hoverInfo);
+          const typeInfo = this.parseTypeInfo(hoverText, match.name);
           signatures.push({
             name: match.name,
             position: match.position,
-            signature: hoverInfo,
+            signature: hoverText || '',
             typeInfo: typeInfo,
           });
         }
@@ -1803,7 +1806,7 @@ export class LSPClient {
     }
   }
 
-  private async getHoverInfo(filePath: string, position: Position): Promise<string | undefined> {
+  async getHover(filePath: string, position: Position): Promise<Hover | null> {
     const serverState = await this.getServer(filePath);
     await serverState.initializationPromise;
 
@@ -1814,27 +1817,13 @@ export class LSPClient {
       });
 
       if (result && typeof result === 'object' && result !== null && 'contents' in result) {
-        const contents = (result as { contents: unknown }).contents;
-
-        // Handle different formats of hover contents
-        if (typeof contents === 'string') {
-          return contents;
-        }
-        if (typeof contents === 'object' && contents !== null && 'value' in contents) {
-          return (contents as { value: string }).value;
-        }
-        if (Array.isArray(contents)) {
-          return contents
-            .map((item) => (typeof item === 'string' ? item : (item as { value: string }).value))
-            .filter(Boolean)
-            .join('\n');
-        }
+        return result as Hover;
       }
     } catch (error) {
-      process.stderr.write(`[DEBUG getHoverInfo] Error getting hover info: ${error}\n`);
+      process.stderr.write(`[DEBUG getHover] Error getting hover info: ${error}\n`);
     }
 
-    return undefined;
+    return null;
   }
 
   private async getSignatureHelp(
@@ -2311,6 +2300,39 @@ export class LSPClient {
       content: formattedContent,
       summary: summary.length > 0 ? summary : ['No formatting changes needed'],
     };
+  }
+
+  private extractHoverText(hover: Hover | string | null | undefined): string | undefined {
+    if (!hover) return undefined;
+
+    if (typeof hover === 'string') return hover;
+
+    if (typeof hover === 'object' && 'contents' in hover) {
+      const { contents } = hover;
+
+      if (typeof contents === 'string') {
+        return contents;
+      }
+      if (Array.isArray(contents)) {
+        return contents
+          .map((item) => {
+            if (typeof item === 'string') {
+              return item;
+            }
+            if (typeof item === 'object' && item !== null && 'value' in item) {
+              return (item as { value: string }).value;
+            }
+            return '';
+          })
+          .filter(Boolean)
+          .join('\n');
+      }
+      if (typeof contents === 'object' && contents !== null && 'value' in contents) {
+        return (contents as { value: string }).value;
+      }
+    }
+
+    return undefined;
   }
 
   private parseTypeInfo(hoverText: string | undefined, symbolName: string): TypeInfo | undefined {

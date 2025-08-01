@@ -397,3 +397,13 @@ export enum CodeActionTriggerKind {
   Invoked = 1,
   Automatic = 2,
 }
+
+export interface MarkupContent {
+  kind: 'plaintext' | 'markdown';
+  value: string;
+}
+
+export interface Hover {
+  contents: string | MarkupContent | MarkupContent[] | string[];
+  range?: Range;
+}

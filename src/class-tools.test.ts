@@ -125,8 +125,8 @@ describe('Class Tools', () => {
         mockDocumentSymbols
       );
 
-      // Mock getHoverInfo to return type information
-      const getHoverInfoSpy = spyOn(client as any, 'getHoverInfo').mockImplementation(
+      // Mock getHover to return type information
+      const getHoverSpy = spyOn(client as any, 'getHover').mockImplementation(
         (filePath: string, position: any) => {
           if (position.line === 4) {
             return Promise.resolve('myProperty: string');
@@ -257,8 +257,8 @@ describe('Class Tools', () => {
         return Promise.resolve({ line: 0, character: 0 });
       });
 
-      // Mock getHoverInfo
-      const getHoverInfoSpy = spyOn(client as any, 'getHoverInfo').mockImplementation(
+      // Mock getHover
+      const getHoverSpy = spyOn(client as any, 'getHover').mockImplementation(
         (filePath: string, position: any) => {
           if (position.line === 4) {
             return Promise.resolve('myProperty: string');
@@ -378,8 +378,8 @@ describe('Class Tools', () => {
 
       spyOn(client, 'getDocumentSymbols').mockResolvedValue(mockDocumentSymbols);
 
-      // Mock getHoverInfo to return property type info
-      spyOn(client as any, 'getHoverInfo').mockResolvedValue('breakType: BreakType');
+      // Mock getHover to return property type info
+      spyOn(client as any, 'getHover').mockResolvedValue('breakType: BreakType');
 
       // Mock getTypeDefinition to return the type's definition location
       spyOn(client as any, 'getTypeDefinition').mockResolvedValue([
@@ -440,8 +440,8 @@ describe('Class Tools', () => {
         matches: mockSymbolMatches,
       });
 
-      // Mock getHoverInfo
-      const getHoverInfoSpy = spyOn(client as any, 'getHoverInfo').mockResolvedValue(
+      // Mock getHover
+      const getHoverSpy = spyOn(client as any, 'getHover').mockResolvedValue(
         '(method) DateFormatter.formatDate(date: Date | string, format?: string): string'
       );
 
@@ -538,7 +538,7 @@ describe('Class Tools', () => {
       spyOn(client, 'findSymbolsByName').mockResolvedValue({ matches: mockSymbolMatches });
       spyOn(client, 'getDocumentSymbols').mockResolvedValue(mockDocumentSymbols);
 
-      const getHoverInfoSpy = spyOn(client as any, 'getHoverInfo').mockImplementation(
+      const getHoverSpy = spyOn(client as any, 'getHover').mockImplementation(
         (filePath: string, position: any) => {
           if (position.line === 10) {
             return Promise.resolve('(method) ComponentA.render(): ReactElement');
@@ -671,7 +671,7 @@ describe('Class Tools', () => {
       ];
 
       spyOn(client, 'findSymbolsByName').mockResolvedValue({ matches: mockSymbolMatches });
-      spyOn(client as any, 'getHoverInfo').mockResolvedValue(undefined);
+      spyOn(client as any, 'getHover').mockResolvedValue(undefined);
       spyOn(client as any, 'getSignatureHelp').mockResolvedValue(undefined);
 
       const signatures = await client.getMethodSignature(testFilePath, 'someMethod');
@@ -987,7 +987,7 @@ describe('Class Tools', () => {
     });
   });
 
-  describe('getHoverInfo', () => {
+  describe('getHover', () => {
     it('should handle string hover content', async () => {
       const testFilePath = join(TEST_DIR, 'test-hover.ts');
       const position = { line: 5, character: 10 };
@@ -1005,13 +1005,15 @@ describe('Class Tools', () => {
         contents: 'function testFunction(): void',
       });
 
-      const result = await (client as any).getHoverInfo(testFilePath, position);
+      const result = await (client as any).getHover(testFilePath, position);
 
       expect(sendRequestSpy).toHaveBeenCalledWith(mockServerState.process, 'textDocument/hover', {
         textDocument: { uri: expect.stringContaining('test-hover.ts') },
         position: position,
       });
-      expect(result).toBe('function testFunction(): void');
+      expect(result).toEqual({
+        contents: 'function testFunction(): void',
+      });
     });
 
     it('should handle object hover content with value property', async () => {
@@ -1029,9 +1031,11 @@ describe('Class Tools', () => {
         contents: { value: 'const myVariable: string' },
       });
 
-      const result = await (client as any).getHoverInfo(testFilePath, position);
+      const result = await (client as any).getHover(testFilePath, position);
 
-      expect(result).toBe('const myVariable: string');
+      expect(result).toEqual({
+        contents: { value: 'const myVariable: string' },
+      });
     });
 
     it('should handle array hover content', async () => {
@@ -1049,9 +1053,11 @@ describe('Class Tools', () => {
         contents: ['class MyClass', { value: 'A class that does something' }],
       });
 
-      const result = await (client as any).getHoverInfo(testFilePath, position);
+      const result = await (client as any).getHover(testFilePath, position);
 
-      expect(result).toBe('class MyClass\nA class that does something');
+      expect(result).toEqual({
+        contents: ['class MyClass', { value: 'A class that does something' }],
+      });
     });
 
     it('should return undefined on error', async () => {
@@ -1069,9 +1075,9 @@ describe('Class Tools', () => {
 
       const stderrSpy = spyOn(process.stderr, 'write');
 
-      const result = await (client as any).getHoverInfo(testFilePath, position);
+      const result = await (client as any).getHover(testFilePath, position);
 
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Error getting hover info'));
 
       stderrSpy.mockRestore();

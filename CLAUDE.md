@@ -86,6 +86,7 @@ The server provides the following MCP tools that wrap LSP functionality:
 - `get_document_symbols` - List all symbols in a document
 - `get_completion` - Code completion/autocomplete functionality
 - `get_code_actions` - Get available code actions (quick fixes, refactoring, etc.)
+- `get_hover` - Get hover information (type details, documentation) for symbols
 
 **Type and Class Tools**
 - `get_class_members` - List class members
