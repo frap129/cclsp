@@ -5,6 +5,9 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadGitignore, scanDirectoryForExtensions } from './file-scanner.js';
 import type {
+  CodeAction,
+  CodeActionContext,
+  Command,
   CompletionContext,
   CompletionItem,
   CompletionList,
@@ -24,10 +27,12 @@ import type {
   SymbolMatch,
   TextEdit,
   TypeInfo,
+  WorkspaceEdit,
   WorkspaceSearchResult,
 } from './types.js';
 import { CompletionItemKind, CompletionTriggerKind, SymbolKind } from './types.js';
 import { pathToUri } from './utils.js';
+import { uriToPath } from './utils.js';
 
 interface LSPMessage {
   jsonrpc: string;
@@ -2973,6 +2978,113 @@ export class LSPClient {
     if (!serverState.workspaceIndexed) {
       process.stderr.write('[DEBUG] Workspace indexing wait timeout reached\n');
       serverState.workspaceIndexed = true; // Proceed anyway
+    }
+  }
+
+  async getCodeActions(
+    filePath: string,
+    range: Range,
+    context?: CodeActionContext
+  ): Promise<(CodeAction | Command)[]> {
+    process.stderr.write(`[DEBUG getCodeActions] Requesting code actions for ${filePath}\n`);
+    const serverState = await this.getServer(filePath);
+    await this.ensureFileOpen(serverState, filePath);
+
+    const uri = pathToUri(filePath);
+    const params = {
+      textDocument: { uri },
+      range,
+      context: context || { diagnostics: [] },
+    };
+
+    try {
+      const result = await this.sendRequest(serverState.process, 'textDocument/codeAction', params);
+
+      if (Array.isArray(result)) {
+        process.stderr.write(`[DEBUG getCodeActions] Found ${result.length} code actions\n`);
+        return result as (CodeAction | Command)[];
+      }
+
+      process.stderr.write('[DEBUG getCodeActions] No code actions found\n');
+      return [];
+    } catch (error) {
+      process.stderr.write(`[DEBUG getCodeActions] Error: ${error}\n`);
+      return [];
+    }
+  }
+
+  async executeCommand(command: Command): Promise<unknown> {
+    process.stderr.write(`[DEBUG executeCommand] Executing command: ${command.command}\n`);
+
+    // Find a server that can handle the command
+    // For now, use the first available server
+    const serverState = Array.from(this.servers.values())[0];
+    if (!serverState) {
+      throw new Error('No LSP server available to execute command');
+    }
+
+    const params = {
+      command: command.command,
+      arguments: command.arguments || [],
+    };
+
+    try {
+      const result = await this.sendRequest(
+        serverState.process,
+        'workspace/executeCommand',
+        params
+      );
+
+      process.stderr.write('[DEBUG executeCommand] Command executed successfully\n');
+      return result;
+    } catch (error) {
+      process.stderr.write(`[DEBUG executeCommand] Error: ${error}\n`);
+      throw error;
+    }
+  }
+
+  async applyWorkspaceEdit(edit: WorkspaceEdit): Promise<{ content: string }> {
+    process.stderr.write('[DEBUG applyWorkspaceEdit] Applying workspace edit\n');
+
+    const changes: string[] = [];
+
+    try {
+      // Handle changes object (legacy format)
+      if (edit.changes) {
+        for (const [uri, textEdits] of Object.entries(edit.changes)) {
+          const filePath = uriToPath(uri);
+          const result = await this.applyTextEdits(filePath, textEdits, true);
+          changes.push(`Modified ${filePath}: ${result.summary.join('; ')}`);
+        }
+      }
+
+      // Handle documentChanges array (newer format)
+      if (edit.documentChanges) {
+        for (const change of edit.documentChanges) {
+          if ('textDocument' in change) {
+            // TextDocumentEdit
+            const filePath = uriToPath(change.textDocument.uri);
+            const result = await this.applyTextEdits(filePath, change.edits as TextEdit[], true);
+            changes.push(`Modified ${filePath}: ${result.summary.join('; ')}`);
+          } else if (change.kind === 'create') {
+            // CreateFile
+            changes.push(`Would create file: ${uriToPath(change.uri)}`);
+          } else if (change.kind === 'rename') {
+            // RenameFile
+            changes.push(`Would rename ${uriToPath(change.oldUri)} to ${uriToPath(change.newUri)}`);
+          } else if (change.kind === 'delete') {
+            // DeleteFile
+            changes.push(`Would delete file: ${uriToPath(change.uri)}`);
+          }
+        }
+      }
+
+      return {
+        content: changes.length > 0 ? changes.join('\n') : 'No changes applied',
+      };
+    } catch (error) {
+      process.stderr.write(`[DEBUG applyWorkspaceEdit] Error: ${error}\n`);
+      throw error;
     }
   }
 

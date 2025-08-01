@@ -38,6 +38,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`get_method_signature`](#get_method_signature)
   - [`search_type`](#search_type)
   - [`get_document_symbols`](#get_document_symbols)
+  - [`get_code_actions`](#get_code_actions)
 - [💡 Real-world Examples](#-real-world-examples)
   - [Finding Function Definitions](#finding-function-definitions)
   - [Finding All References](#finding-all-references)
@@ -60,6 +61,7 @@ When using AI-powered coding assistants like Claude, you often need to navigate 
 
 - **Go to Definition**: Find where symbols are defined
 - **Find References**: Locate all references to a symbol
+- **Code Actions**: Get quick fixes, refactoring suggestions, and automated improvements
 - **Class Exploration**: List all members of a class with their types
 - **Method Signatures**: Get full method signatures with parameters and return types
 - **Code Diagnostics**: Get errors, warnings, and hints for your code
@@ -465,6 +467,29 @@ Get all symbols (classes, functions, variables, etc.) in a document with their l
 - **Symbol filtering**: Optionally filter by specific symbol types
 - **Location information**: Provides exact line and character positions
 - **Discovery-oriented**: Ideal for code exploration and understanding file architecture
+
+### `get_code_actions`
+
+Get available code actions (quick fixes, refactoring suggestions, etc.) for a specific location or range in a file. Code actions provide automated code improvements and transformations.
+
+**Parameters:**
+- `file_path`: The path to the file
+- `start_line`: Start line number (1-indexed)
+- `end_line`: Optional - End line number (1-indexed, defaults to start_line)
+- `start_character`: Optional - Start character position (1-indexed, defaults to 0)
+- `end_character`: Optional - End character position (1-indexed, defaults to end of line)
+- `include_kinds`: Optional - Filter for specific action kinds (`quickfix`, `refactor`, `source`, etc.)
+- `only_preferred`: Optional - Only return preferred actions (default: false)
+- `apply_action`: Optional - Title of the specific action to apply
+
+**Features:**
+- **Quick fixes**: Automatic fixes for diagnostics and errors
+- **Refactoring**: Extract methods, rename variables, organize imports, etc.
+- **Source actions**: Organize imports, remove unused imports, format code
+- **Action filtering**: Filter by action kind or preference
+- **Action execution**: Apply specific actions directly by providing the action title
+- **Workspace edits**: Handles actions that modify multiple files
+- **Diagnostic integration**: Uses file diagnostics to provide relevant fixes
 
 ### `get_completion`
 

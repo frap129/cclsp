@@ -45,7 +45,7 @@ npm run prepublishOnly  # build + test + typecheck
 **MCP Server Layer** (`index.ts`)
 
 - Entry point that implements MCP protocol
-- Exposes `find_definition`, `find_references`, and `rename_symbol` tools
+- Exposes `find_definition`, `find_references`, `rename_symbol`, `get_code_actions`, and other LSP tools
 - Handles MCP client requests and delegates to LSP layer
 - Includes subcommand handling for `cclsp setup`
 
@@ -65,12 +65,35 @@ npm run prepublishOnly  # build + test + typecheck
 
 ### Data Flow
 
-1. MCP client sends tool request (e.g., `find_definition`)
+1. MCP client sends tool request (e.g., `find_definition`, `get_code_actions`)
 2. Main server resolves file path and extracts position
 3. LSP client determines appropriate language server for file extension
 4. If server not running, spawns new LSP server process
 5. Sends LSP request to server and correlates response
 6. Transforms LSP response back to MCP format
+
+### Available MCP Tools
+
+The server provides the following MCP tools that wrap LSP functionality:
+
+**Core Navigation Tools**
+- `find_definition` - Find symbol definitions
+- `find_references` - Find symbol references  
+- `rename_symbol` / `rename_symbol_strict` - Rename symbols
+
+**Code Analysis Tools**
+- `get_diagnostics` - Get diagnostics for a single file
+- `get_document_symbols` - List all symbols in a document
+- `get_completion` - Code completion/autocomplete functionality
+- `get_code_actions` - Get available code actions (quick fixes, refactoring, etc.)
+
+**Type and Class Tools**
+- `get_class_members` - List class members
+- `get_method_signature` - Get method signature details
+- `search_type` - Search for types in workspace
+
+**Formatting Tools**
+- `format_document` - Document formatting with configurable options
 
 ### LSP Server Management
 

@@ -5,7 +5,12 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { LSPClient } from './src/lsp-client.js';
-import type { DocumentSymbol, SymbolInformation, WorkspaceSearchResult } from './src/types.js';
+import type {
+  Command,
+  DocumentSymbol,
+  SymbolInformation,
+  WorkspaceSearchResult,
+} from './src/types.js';
 import { uriToPath } from './src/utils.js';
 
 // Handle subcommands
@@ -378,6 +383,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['file_path'],
+        },
+      },
+      {
+        name: 'get_code_actions',
+        description:
+          'Get available code actions (quick fixes, refactoring, etc.) for a specific location or range in a file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file',
+            },
+            start_line: {
+              type: 'number',
+              description: 'Start line number (1-indexed)',
+            },
+            end_line: {
+              type: 'number',
+              description: 'Optional: End line number (1-indexed, defaults to start_line)',
+            },
+            start_character: {
+              type: 'number',
+              description: 'Optional: Start character position (1-indexed, defaults to 0)',
+            },
+            end_character: {
+              type: 'number',
+              description: 'Optional: End character position (1-indexed, defaults to end of line)',
+            },
+            include_kinds: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Optional: Filter for specific action kinds (quickfix, refactor, source, etc.)',
+            },
+            only_preferred: {
+              type: 'boolean',
+              description: 'Optional: Only return preferred actions',
+              default: false,
+            },
+            apply_action: {
+              type: 'string',
+              description: 'Optional: Title of the specific action to apply',
+            },
+          },
+          required: ['file_path', 'start_line'],
         },
       },
     ],
@@ -1464,6 +1515,222 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error formatting document: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_code_actions') {
+      const {
+        file_path,
+        start_line,
+        end_line,
+        start_character = 0,
+        end_character,
+        include_kinds,
+        only_preferred = false,
+        apply_action,
+      } = args as {
+        file_path: string;
+        start_line: number;
+        end_line?: number;
+        start_character?: number;
+        end_character?: number;
+        include_kinds?: string[];
+        only_preferred?: boolean;
+        apply_action?: string;
+      };
+
+      try {
+        const absolutePath = resolve(file_path);
+
+        // Default end_line to start_line if not provided
+        const effectiveEndLine = end_line ?? start_line;
+
+        // Convert 1-indexed to 0-indexed positions for LSP
+        const range = {
+          start: {
+            line: start_line - 1,
+            character: Math.max(0, start_character - 1),
+          },
+          end: {
+            line: effectiveEndLine - 1,
+            character: end_character !== undefined ? Math.max(0, end_character - 1) : 999999, // Use large number for end of line
+          },
+        };
+
+        // Get diagnostics for the file to include in context
+        const diagnostics = await lspClient.getDiagnostics(absolutePath);
+
+        // Filter diagnostics to only those that overlap with the range
+        const rangeOverlapsDiagnostics = diagnostics.filter((diagnostic) => {
+          const diagStart = diagnostic.range.start;
+          const diagEnd = diagnostic.range.end;
+
+          // Check if ranges overlap
+          return !(
+            diagEnd.line < range.start.line ||
+            diagStart.line > range.end.line ||
+            (diagEnd.line === range.start.line && diagEnd.character < range.start.character) ||
+            (diagStart.line === range.end.line && diagStart.character > range.end.character)
+          );
+        });
+
+        // Build code action context
+        const context = {
+          diagnostics: rangeOverlapsDiagnostics,
+          only: include_kinds,
+        };
+
+        process.stderr.write(
+          `[DEBUG get_code_actions] Requesting code actions for ${file_path} at line ${start_line}${end_line ? `-${end_line}` : ''}\n`
+        );
+
+        const codeActions = await lspClient.getCodeActions(absolutePath, range, context);
+
+        // Filter by preference if requested
+        const filteredActions = only_preferred
+          ? codeActions.filter((action) => 'isPreferred' in action && action.isPreferred)
+          : codeActions;
+
+        if (apply_action) {
+          // Find and apply the requested action
+          const actionToApply = filteredActions.find(
+            (action) => 'title' in action && action.title === apply_action
+          );
+
+          if (!actionToApply) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Action "${apply_action}" not found. Available actions:\n${filteredActions.map((a) => `• ${'title' in a ? a.title : 'Unknown action'}`).join('\n')}`,
+                },
+              ],
+            };
+          }
+
+          // Apply the action
+          if ('edit' in actionToApply && actionToApply.edit) {
+            // Apply workspace edit
+            const { content: editResult } = await lspClient.applyWorkspaceEdit(actionToApply.edit);
+            const title = 'title' in actionToApply ? actionToApply.title : 'Unknown action';
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Applied code action: "${title}"\n\n${editResult}`,
+                },
+              ],
+            };
+          }
+          if (
+            'command' in actionToApply &&
+            actionToApply.command &&
+            typeof actionToApply.command === 'object'
+          ) {
+            // Execute command
+            try {
+              const commandResult = await lspClient.executeCommand(
+                actionToApply.command as Command
+              );
+              const title = 'title' in actionToApply ? actionToApply.title : 'Unknown action';
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Executed code action: "${title}"\n\nCommand result: ${JSON.stringify(commandResult, null, 2)}`,
+                  },
+                ],
+              };
+            } catch (commandError) {
+              const title = 'title' in actionToApply ? actionToApply.title : 'Unknown action';
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Failed to execute code action: "${title}"\n\nError: ${commandError instanceof Error ? commandError.message : String(commandError)}`,
+                  },
+                ],
+              };
+            }
+          }
+        }
+
+        if (filteredActions.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No code actions available for ${file_path} at line ${start_line}${effectiveEndLine !== start_line ? `-${effectiveEndLine}` : ''}.`,
+              },
+            ],
+          };
+        }
+
+        // Group actions by kind
+        const actionsByKind: Record<
+          string,
+          Array<{ title: string; kind?: string; disabled?: boolean }>
+        > = {};
+
+        for (const action of filteredActions) {
+          if ('title' in action) {
+            const kind = 'kind' in action && action.kind ? action.kind : 'other';
+            const categoryName = kind.includes('quickfix')
+              ? 'Quick Fixes'
+              : kind.includes('refactor')
+                ? 'Refactoring'
+                : kind.includes('source')
+                  ? 'Source Actions'
+                  : 'Other Actions';
+
+            if (!actionsByKind[categoryName]) {
+              actionsByKind[categoryName] = [];
+            }
+
+            actionsByKind[categoryName].push({
+              title: action.title,
+              kind: 'kind' in action ? action.kind : undefined,
+              disabled: 'disabled' in action ? !!action.disabled : false,
+            });
+          }
+        }
+
+        // Format response
+        let responseText = `Found ${filteredActions.length} code action${filteredActions.length === 1 ? '' : 's'} for ${file_path} at line ${start_line}${effectiveEndLine !== start_line ? `-${effectiveEndLine}` : ''}:\n\n`;
+
+        for (const [category, actions] of Object.entries(actionsByKind)) {
+          responseText += `${category}:\n`;
+          for (const action of actions) {
+            const statusIcon = action.disabled ? '⚠️' : '•';
+            const kindInfo = action.kind ? ` (${action.kind})` : '';
+            responseText += `${statusIcon} "${action.title}"${kindInfo}\n`;
+            if (action.disabled) {
+              responseText += '  (disabled)\n';
+            }
+          }
+          responseText += '\n';
+        }
+
+        responseText +=
+          'To apply a specific action, include apply_action parameter with the action title.';
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: responseText,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting code actions: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

@@ -310,3 +310,90 @@ export interface Range {
   start: Position;
   end: Position;
 }
+
+export interface CodeAction {
+  title: string;
+  kind?: string;
+  diagnostics?: Diagnostic[];
+  isPreferred?: boolean;
+  disabled?: {
+    reason: string;
+  };
+  edit?: WorkspaceEdit;
+  command?: Command;
+  data?: unknown;
+}
+
+export interface WorkspaceEdit {
+  changes?: { [uri: string]: TextEdit[] };
+  documentChanges?: (TextDocumentEdit | CreateFile | RenameFile | DeleteFile)[];
+  changeAnnotations?: { [id: string]: ChangeAnnotation };
+}
+
+export interface TextDocumentEdit {
+  textDocument: VersionedTextDocumentIdentifier;
+  edits: (TextEdit | AnnotatedTextEdit)[];
+}
+
+export interface VersionedTextDocumentIdentifier {
+  uri: string;
+  version: number | null;
+}
+
+export interface AnnotatedTextEdit extends TextEdit {
+  annotationId?: string;
+}
+
+export interface CreateFile {
+  kind: 'create';
+  uri: string;
+  options?: CreateFileOptions;
+  annotationId?: string;
+}
+
+export interface CreateFileOptions {
+  overwrite?: boolean;
+  ignoreIfExists?: boolean;
+}
+
+export interface RenameFile {
+  kind: 'rename';
+  oldUri: string;
+  newUri: string;
+  options?: RenameFileOptions;
+  annotationId?: string;
+}
+
+export interface RenameFileOptions {
+  overwrite?: boolean;
+  ignoreIfExists?: boolean;
+}
+
+export interface DeleteFile {
+  kind: 'delete';
+  uri: string;
+  options?: DeleteFileOptions;
+  annotationId?: string;
+}
+
+export interface DeleteFileOptions {
+  recursive?: boolean;
+  ignoreIfNotExists?: boolean;
+}
+
+export interface ChangeAnnotation {
+  label: string;
+  needsConfirmation?: boolean;
+  description?: string;
+}
+
+export interface CodeActionContext {
+  diagnostics: Diagnostic[];
+  only?: string[];
+  triggerKind?: CodeActionTriggerKind;
+}
+
+export enum CodeActionTriggerKind {
+  Invoked = 1,
+  Automatic = 2,
+}
