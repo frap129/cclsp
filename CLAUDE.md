@@ -98,6 +98,9 @@ The server provides the following MCP tools that wrap LSP functionality:
 **Formatting Tools**
 - `format_document` - Document formatting with configurable options
 
+**Utility Tools**
+- `check_capabilities` - Check what capabilities the LSP server supports
+
 ### LSP Server Management
 
 The system spawns separate LSP server processes per configuration. Each server:

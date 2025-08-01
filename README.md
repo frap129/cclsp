@@ -41,6 +41,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`get_document_symbols`](#get_document_symbols)
   - [`get_workspace_symbols`](#get_workspace_symbols)
   - [`get_code_actions`](#get_code_actions)
+  - [`check_capabilities`](#check_capabilities)
 - [💡 Real-world Examples](#-real-world-examples)
   - [Finding Function Definitions](#finding-function-definitions)
   - [Finding All References](#finding-all-references)
@@ -597,6 +598,24 @@ Format a document or specific range with configurable formatting options. Provid
 - **Configurable options**: Customizable indentation, whitespace, and newline handling
 - **Detailed change summary**: Shows what formatting changes were made
 - **Multiple language support**: Works with any LSP server that supports formatting
+
+### `check_capabilities`
+
+Check what capabilities are supported by the active LSP servers. This tool helps diagnose LSP server functionality and understand what features are available.
+
+**Parameters:**
+- `file_extension`: Optional - Check capabilities for specific file extension (e.g., "ts", "py")
+- `capability_type`: Optional - Filter by capability type (`text_document`, `workspace`, `experimental`)
+- `detailed`: Optional - Show detailed capability information (default: false)
+
+**Features:**
+- **Server capability inspection**: See what features each LSP server supports
+- **Extension-specific filtering**: Check capabilities for specific file types
+- **Capability categorization**: Organized by text document, workspace, and experimental features
+- **Visual indicators**: Clear ✓/✗ symbols for supported/unsupported features
+- **Detailed information**: Optional detailed capability parameters and trigger characters
+- **Troubleshooting aid**: Helps diagnose why certain features might not work
+- **Multi-server support**: Shows capabilities across all active LSP servers
 
 ## 💡 Real-world Examples
 

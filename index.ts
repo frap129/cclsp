@@ -9,10 +9,108 @@ import type {
   Command,
   Diagnostic,
   DocumentSymbol,
+  ServerCapabilities,
   SymbolInformation,
   WorkspaceSearchResult,
 } from './src/types.js';
 import { uriToPath } from './src/utils.js';
+
+// Helper function to format server capabilities
+function formatServerCapabilities(
+  capabilities: ServerCapabilities,
+  filterType?: 'text_document' | 'workspace' | 'experimental',
+  detailed = false
+): string[] {
+  const output: string[] = [];
+
+  // Text Document Capabilities
+  if (!filterType || filterType === 'text_document') {
+    output.push('✓ Text Document Capabilities:');
+
+    const textCapabilities = [
+      { name: 'Hover support', value: capabilities.hoverProvider },
+      {
+        name: 'Completion support',
+        value: capabilities.completionProvider,
+        detail: capabilities.completionProvider
+          ? `(trigger characters: ${capabilities.completionProvider.triggerCharacters?.join(', ') || 'none'})`
+          : '',
+      },
+      {
+        name: 'Signature help',
+        value: capabilities.signatureHelpProvider,
+        detail: capabilities.signatureHelpProvider
+          ? `(trigger characters: ${capabilities.signatureHelpProvider.triggerCharacters?.join(', ') || 'none'})`
+          : '',
+      },
+      { name: 'Go to definition', value: capabilities.definitionProvider },
+      { name: 'Type definition', value: capabilities.typeDefinitionProvider },
+      { name: 'Implementation', value: capabilities.implementationProvider },
+      { name: 'Find references', value: capabilities.referencesProvider },
+      { name: 'Document highlights', value: capabilities.documentHighlightProvider },
+      { name: 'Document symbols', value: capabilities.documentSymbolProvider },
+      { name: 'Code actions', value: capabilities.codeActionProvider },
+      { name: 'Code lens', value: capabilities.codeLensProvider },
+      { name: 'Document formatting', value: capabilities.documentFormattingProvider },
+      { name: 'Range formatting', value: capabilities.documentRangeFormattingProvider },
+      { name: 'On-type formatting', value: capabilities.documentOnTypeFormattingProvider },
+      { name: 'Rename support', value: capabilities.renameProvider },
+      { name: 'Document links', value: capabilities.documentLinkProvider },
+      { name: 'Color provider', value: capabilities.colorProvider },
+      { name: 'Folding ranges', value: capabilities.foldingRangeProvider },
+    ];
+
+    for (const cap of textCapabilities) {
+      const isSupported = Boolean(cap.value);
+      const icon = isSupported ? '✓' : '✗';
+      const detail = detailed && cap.detail ? ` ${cap.detail}` : '';
+      output.push(`  ${icon} ${cap.name}${detail}`);
+    }
+    output.push('');
+  }
+
+  // Workspace Capabilities
+  if (!filterType || filterType === 'workspace') {
+    output.push('✓ Workspace Capabilities:');
+
+    const workspaceCapabilities = [
+      { name: 'Workspace symbols', value: capabilities.workspaceSymbolProvider },
+      {
+        name: 'Execute command',
+        value: capabilities.executeCommandProvider,
+        detail: capabilities.executeCommandProvider
+          ? `(commands: ${capabilities.executeCommandProvider.commands?.length || 0})`
+          : '',
+      },
+      { name: 'Workspace folders', value: capabilities.workspace?.workspaceFolders?.supported },
+      { name: 'File operations', value: capabilities.workspace?.fileOperations },
+    ];
+
+    for (const cap of workspaceCapabilities) {
+      const isSupported = Boolean(cap.value);
+      const icon = isSupported ? '✓' : '✗';
+      const detail = detailed && cap.detail ? ` ${cap.detail}` : '';
+      output.push(`  ${icon} ${cap.name}${detail}`);
+    }
+    output.push('');
+  }
+
+  // Experimental Capabilities
+  if (!filterType || filterType === 'experimental') {
+    const hasExperimental = Boolean(capabilities.experimental);
+    const icon = hasExperimental ? '✓' : '✗';
+    output.push(`${icon} Experimental Capabilities:`);
+
+    if (hasExperimental && detailed) {
+      output.push('  ✓ Custom experimental features available');
+    } else if (!hasExperimental) {
+      output.push('  ✗ No experimental features supported');
+    }
+    output.push('');
+  }
+
+  return output;
+}
 
 // Handle subcommands
 const args = process.argv.slice(2);
@@ -576,6 +674,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Include diagnostic source information',
               default: true,
+            },
+          },
+        },
+      },
+      {
+        name: 'check_capabilities',
+        description: 'Check what capabilities are supported by the active LSP servers',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_extension: {
+              type: 'string',
+              description:
+                'Optional: Check capabilities for specific file extension (e.g., "ts", "py")',
+            },
+            capability_type: {
+              type: 'string',
+              description: 'Optional: Filter by capability type',
+              enum: ['text_document', 'workspace', 'experimental'],
+            },
+            detailed: {
+              type: 'boolean',
+              description: 'Show detailed capability information',
+              default: false,
             },
           },
         },
@@ -2531,6 +2653,132 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting workspace diagnostics: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'check_capabilities') {
+      const {
+        file_extension,
+        capability_type,
+        detailed = false,
+      } = args as {
+        file_extension?: string;
+        capability_type?: 'text_document' | 'workspace' | 'experimental';
+        detailed?: boolean;
+      };
+
+      try {
+        let output: string[] = [];
+        output.push('LSP Server Capabilities:');
+        output.push('');
+
+        if (file_extension) {
+          // Get capabilities for specific file extension
+          const capabilities = lspClient.getServerCapabilities(file_extension);
+          if (!capabilities) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `No LSP server found for file extension "${file_extension}". Check your cclsp.json configuration.`,
+                },
+              ],
+            };
+          }
+
+          const serverConfig = lspClient.getServerConfigForExtension(file_extension);
+          const serverName = serverConfig ? serverConfig.command.join(' ') : 'Unknown Server';
+
+          output.push(`${serverName} (extension: ${file_extension}):`);
+          output = output.concat(formatServerCapabilities(capabilities, capability_type, detailed));
+        } else {
+          // Get capabilities for all servers
+          const allCapabilities = lspClient.getAllServerCapabilities();
+
+          if (allCapabilities.size === 0) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: 'No active LSP servers found. Make sure servers are configured and running.',
+                },
+              ],
+            };
+          }
+
+          for (const [serverKey, capabilities] of allCapabilities) {
+            try {
+              const serverConfig = JSON.parse(serverKey);
+              const serverName = serverConfig.command ? serverConfig.command.join(' ') : 'Unknown';
+              const extensions = serverConfig.extensions
+                ? serverConfig.extensions.join(', ')
+                : 'unknown';
+
+              output.push(`${serverName} (extensions: ${extensions}):`);
+              output = output.concat(
+                formatServerCapabilities(capabilities, capability_type, detailed)
+              );
+              output.push('');
+            } catch (parseError) {
+              output.push(`Server with key ${serverKey}:`);
+              output = output.concat(
+                formatServerCapabilities(capabilities, capability_type, detailed)
+              );
+              output.push('');
+            }
+          }
+        }
+
+        // Add summary
+        if (!file_extension && !capability_type) {
+          const allCapabilities = lspClient.getAllServerCapabilities();
+          output.push('Summary:');
+          output.push(
+            `• ${allCapabilities.size} active LSP server${allCapabilities.size === 1 ? '' : 's'}`
+          );
+
+          let hasFullSupport = false;
+          let hasLimitedSupport = false;
+
+          for (const capabilities of allCapabilities.values()) {
+            const hasNavigation =
+              capabilities.definitionProvider && capabilities.referencesProvider;
+            const hasFormatting = capabilities.documentFormattingProvider;
+            const hasCodeActions = capabilities.codeActionProvider;
+
+            if (hasNavigation && hasFormatting && hasCodeActions) {
+              hasFullSupport = true;
+            } else if (hasNavigation) {
+              hasLimitedSupport = true;
+            }
+          }
+
+          if (hasFullSupport) {
+            output.push('• At least one server has full feature support');
+          } else if (hasLimitedSupport) {
+            output.push('• Limited feature support available');
+          } else {
+            output.push('• Basic navigation support available');
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output.join('\n'),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error checking capabilities: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

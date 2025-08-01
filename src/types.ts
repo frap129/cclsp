@@ -424,3 +424,57 @@ export interface Hover {
   contents: string | MarkupContent | MarkupContent[] | string[];
   range?: Range;
 }
+
+export interface ServerCapabilities {
+  textDocumentSync?: unknown;
+  hoverProvider?: boolean | unknown;
+  completionProvider?: {
+    triggerCharacters?: string[];
+    resolveProvider?: boolean;
+  };
+  signatureHelpProvider?: {
+    triggerCharacters?: string[];
+    retriggerCharacters?: string[];
+  };
+  definitionProvider?: boolean | unknown;
+  typeDefinitionProvider?: boolean | unknown;
+  implementationProvider?: boolean | unknown;
+  referencesProvider?: boolean | unknown;
+  documentHighlightProvider?: boolean | unknown;
+  documentSymbolProvider?: boolean | unknown;
+  workspaceSymbolProvider?: boolean | unknown;
+  codeActionProvider?: boolean | unknown;
+  codeLensProvider?: {
+    resolveProvider?: boolean;
+  };
+  documentFormattingProvider?: boolean | unknown;
+  documentRangeFormattingProvider?: boolean | unknown;
+  documentOnTypeFormattingProvider?: {
+    firstTriggerCharacter: string;
+    moreTriggerCharacter?: string[];
+  };
+  renameProvider?: boolean | unknown;
+  documentLinkProvider?: {
+    resolveProvider?: boolean;
+  };
+  colorProvider?: boolean | unknown;
+  foldingRangeProvider?: boolean | unknown;
+  executeCommandProvider?: {
+    commands: string[];
+  };
+  workspace?: {
+    workspaceFolders?: {
+      supported?: boolean;
+      changeNotifications?: string | boolean;
+    };
+    fileOperations?: {
+      didCreate?: unknown;
+      willCreate?: unknown;
+      didRename?: unknown;
+      willRename?: unknown;
+      didDelete?: unknown;
+      willDelete?: unknown;
+    };
+  };
+  experimental?: unknown;
+}

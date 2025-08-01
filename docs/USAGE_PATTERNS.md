@@ -9,6 +9,7 @@ This document outlines common usage patterns for the CCLSP MCP server in develop
 4. [Refactoring](#refactoring)
 5. [Debugging and Diagnostics](#debugging-and-diagnostics)
 6. [API Documentation](#api-documentation)
+7. [Server Capability Inspection](#server-capability-inspection)
 
 ## Basic Symbol Navigation
 
@@ -631,6 +632,101 @@ When exploring unknown codebases:
     - Use full document formatting for new files or major refactoring
     - Use range formatting for specific function or class modifications
     - Consider the impact on version control diffs when formatting entire files
+
+## Server Capability Inspection
+
+### Checking LSP Server Capabilities
+
+When troubleshooting LSP functionality or understanding what features are available, use the `check_capabilities` tool:
+
+```
+check_capabilities:
+  # Check capabilities for all active servers
+```
+
+This returns a comprehensive overview of what each LSP server supports:
+
+```
+LSP Server Capabilities:
+
+TypeScript Language Server (extensions: ts, tsx, js, jsx):
+✓ Text Document Capabilities:
+  ✓ Hover support
+  ✓ Completion support
+  ✓ Signature help
+  ✓ Go to definition
+  ✓ Find references
+  ✓ Document symbols
+  ✓ Code actions
+  ✓ Document formatting
+  ✓ Rename support
+
+✓ Workspace Capabilities:
+  ✓ Workspace symbols
+  ✓ Execute command
+  ✓ Workspace folders
+
+Summary:
+• 1 active LSP server
+• At least one server has full feature support
+```
+
+### Extension-Specific Capability Check
+
+Check capabilities for a specific file type:
+
+```
+check_capabilities:
+  file_extension: "py"
+```
+
+This shows capabilities only for Python files, helping you understand language-specific limitations.
+
+### Detailed Capability Information
+
+Get detailed information about trigger characters and configuration options:
+
+```
+check_capabilities:
+  detailed: true
+```
+
+This provides additional details like completion trigger characters and signature help triggers.
+
+### Filtering by Capability Type
+
+Focus on specific capability categories:
+
+```
+check_capabilities:
+  capability_type: "text_document"  # or "workspace" or "experimental"
+```
+
+### Troubleshooting Workflow
+
+1. **Start with general capability check**:
+   ```
+   check_capabilities:
+   ```
+
+2. **If a feature isn't working, check specific extension**:
+   ```
+   check_capabilities:
+     file_extension: "ts"
+   ```
+
+3. **Get detailed information for debugging**:
+   ```
+   check_capabilities:
+     file_extension: "ts"
+     detailed: true
+   ```
+
+4. **Check specific capability categories**:
+   ```
+   check_capabilities:
+     capability_type: "text_document"
+   ```
 
 ## Troubleshooting
 

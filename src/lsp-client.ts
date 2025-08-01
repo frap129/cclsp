@@ -26,6 +26,7 @@ import type {
   ParameterInformation,
   Position,
   Range,
+  ServerCapabilities,
   SignatureHelp,
   SignatureInformation,
   SymbolInformation,
@@ -63,6 +64,7 @@ interface ServerState {
   workspaceIndexed: boolean; // Track if workspace is fully indexed
   indexingStartTime: number; // When indexing started
   filesDiscovered: number; // Number of files discovered during indexing
+  capabilities?: ServerCapabilities; // Store server capabilities from initialization
 }
 
 export class LSPClient {
@@ -302,6 +304,18 @@ export class LSPClient {
         },
       },
     });
+
+    // Store server capabilities from the initialization response
+    if (initResult && typeof initResult === 'object' && 'capabilities' in initResult) {
+      serverState.capabilities = initResult.capabilities as ServerCapabilities;
+      process.stderr.write(
+        `[DEBUG startServer] Stored capabilities for ${serverConfig.command.join(' ')}\n`
+      );
+    } else {
+      process.stderr.write(
+        `[DEBUG startServer] No capabilities found in initialization response for ${serverConfig.command.join(' ')}\n`
+      );
+    }
 
     // Send the initialized notification after receiving the initialize response
     await this.sendNotification(childProcess, 'initialized', {});
@@ -3345,6 +3359,49 @@ export class LSPClient {
 
     const regex = new RegExp(`^${regexPattern}$`, 'i');
     return regex.test(path) || regex.test(relative(process.cwd(), path));
+  }
+
+  /**
+   * Get server capabilities for a specific file extension
+   */
+  getServerCapabilities(fileExtension?: string): ServerCapabilities | null {
+    if (!fileExtension) {
+      // Return capabilities from first available server if no extension specified
+      const firstServer = Array.from(this.servers.values())[0];
+      return firstServer?.capabilities || null;
+    }
+
+    // Find server that handles this file extension
+    const serverConfig = this.getServerForFile(`dummy.${fileExtension}`);
+    if (!serverConfig) {
+      return null;
+    }
+
+    const serverKey = JSON.stringify(serverConfig);
+    const serverState = this.servers.get(serverKey);
+    return serverState?.capabilities || null;
+  }
+
+  /**
+   * Get capabilities for all active LSP servers
+   */
+  getAllServerCapabilities(): Map<string, ServerCapabilities> {
+    const capabilitiesMap = new Map<string, ServerCapabilities>();
+
+    for (const [serverKey, serverState] of this.servers.entries()) {
+      if (serverState.capabilities) {
+        capabilitiesMap.set(serverKey, serverState.capabilities);
+      }
+    }
+
+    return capabilitiesMap;
+  }
+
+  /**
+   * Get server configuration for a file extension
+   */
+  getServerConfigForExtension(extension: string): LSPServerConfig | null {
+    return this.getServerForFile(`dummy.${extension}`);
   }
 
   dispose(): void {
