@@ -201,6 +201,16 @@ For more languages and detailed instructions, run `npx cclsp@latest setup` and s
 
 ## 🚀 Usage
 
+### For LLMs and AI Assistants
+
+When working with cclsp, AI assistants should use the comprehensive LSP tools provided instead of making assumptions about code structure. See [`.claude/commands/prime-lsp.md`](.claude/commands/prime-lsp.md) for detailed instructions on how to leverage these tools effectively.
+
+This directive ensures AI assistants:
+- Always verify LSP capabilities before proceeding
+- Use authoritative LSP data instead of guessing code relationships
+- Follow proper workflows for code navigation, analysis, and modification
+- Provide accurate, real-time information about your codebase
+
 ### As MCP Server
 
 Configure in your MCP client (e.g., Claude Code):
