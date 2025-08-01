@@ -7,6 +7,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { LSPClient } from './src/lsp-client.js';
 import type {
   Command,
+  Diagnostic,
   DocumentSymbol,
   SymbolInformation,
   WorkspaceSearchResult,
@@ -535,6 +536,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['query'],
+        },
+      },
+      {
+        name: 'get_all_diagnostics',
+        description: 'Get diagnostics (errors, warnings, hints) for all files in the workspace',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            severity_filter: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['error', 'warning', 'information', 'hint'],
+              },
+              description: 'Filter diagnostics by severity level',
+            },
+            include_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional: Specific file patterns to include (glob patterns)',
+            },
+            exclude_files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional: File patterns to exclude (glob patterns)',
+            },
+            max_diagnostics_per_file: {
+              type: 'number',
+              description: 'Maximum diagnostics to show per file',
+              default: 50,
+            },
+            group_by_severity: {
+              type: 'boolean',
+              description: 'Group results by severity level',
+              default: true,
+            },
+            include_source: {
+              type: 'boolean',
+              description: 'Include diagnostic source information',
+              default: true,
+            },
+          },
         },
       },
     ],
@@ -2265,6 +2308,229 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error searching workspace symbols: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_all_diagnostics') {
+      const {
+        severity_filter,
+        include_files,
+        exclude_files,
+        max_diagnostics_per_file = 50,
+        group_by_severity = true,
+        include_source = true,
+      } = args as {
+        severity_filter?: string[];
+        include_files?: string[];
+        exclude_files?: string[];
+        max_diagnostics_per_file?: number;
+        group_by_severity?: boolean;
+        include_source?: boolean;
+      };
+
+      try {
+        process.stderr.write(
+          `[DEBUG get_all_diagnostics] Starting workspace diagnostics analysis with ${include_files?.length || 0} include patterns and ${exclude_files?.length || 0} exclude patterns\n`
+        );
+
+        const diagnosticsMap = await lspClient.getAllDiagnostics(include_files, exclude_files);
+
+        if (diagnosticsMap.size === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'No diagnostics found in the workspace. All files are error-free!',
+              },
+            ],
+          };
+        }
+
+        // Convert severity strings to numbers for filtering
+        const severityMap = {
+          error: 1,
+          warning: 2,
+          information: 3,
+          hint: 4,
+        };
+
+        const allowedSeverities = severity_filter
+          ?.map((s) => severityMap[s as keyof typeof severityMap])
+          .filter(Boolean);
+
+        // Collect and process all diagnostics
+        const diagnosticsBySeverity = {
+          ERRORS: [] as { file: string; diagnostic: Diagnostic }[],
+          WARNINGS: [] as { file: string; diagnostic: Diagnostic }[],
+          INFORMATION: [] as { file: string; diagnostic: Diagnostic }[],
+          HINTS: [] as { file: string; diagnostic: Diagnostic }[],
+        };
+
+        let totalDiagnostics = 0;
+        const filesWithIssues = new Set<string>();
+
+        for (const [filePath, diagnostics] of diagnosticsMap) {
+          filesWithIssues.add(filePath);
+
+          let fileProcessedCount = 0;
+
+          for (const diagnostic of diagnostics) {
+            if (fileProcessedCount >= max_diagnostics_per_file) {
+              break; // Limit diagnostics per file
+            }
+
+            // Filter by severity if specified
+            if (allowedSeverities && allowedSeverities.length > 0) {
+              if (!diagnostic.severity || !allowedSeverities.includes(diagnostic.severity)) {
+                continue;
+              }
+            }
+
+            const severityName =
+              diagnostic.severity === 1
+                ? 'ERRORS'
+                : diagnostic.severity === 2
+                  ? 'WARNINGS'
+                  : diagnostic.severity === 3
+                    ? 'INFORMATION'
+                    : 'HINTS';
+
+            diagnosticsBySeverity[severityName].push({
+              file: filePath,
+              diagnostic,
+            });
+
+            totalDiagnostics++;
+            fileProcessedCount++;
+          }
+        }
+
+        // Build response
+        const output: string[] = [];
+
+        // Summary header
+        const errorCount = diagnosticsBySeverity.ERRORS.length;
+        const warningCount = diagnosticsBySeverity.WARNINGS.length;
+        const infoCount = diagnosticsBySeverity.INFORMATION.length;
+        const hintCount = diagnosticsBySeverity.HINTS.length;
+
+        output.push('Workspace diagnostics summary:');
+        if (errorCount > 0) output.push(`• ${errorCount} errors across files`);
+        if (warningCount > 0) output.push(`• ${warningCount} warnings across files`);
+        if (infoCount > 0) output.push(`• ${infoCount} information messages across files`);
+        if (hintCount > 0) output.push(`• ${hintCount} hints across files`);
+        output.push('');
+
+        // Group by severity if requested
+        if (group_by_severity) {
+          const severities = ['ERRORS', 'WARNINGS', 'INFORMATION', 'HINTS'];
+
+          for (const severityName of severities) {
+            const items = diagnosticsBySeverity[severityName as keyof typeof diagnosticsBySeverity];
+            if (items.length === 0) continue;
+
+            output.push(`${severityName} (${items.length}):`);
+            output.push('');
+
+            // Group by file for better readability
+            const byFile = new Map<string, Diagnostic[]>();
+            for (const item of items) {
+              if (!byFile.has(item.file)) {
+                byFile.set(item.file, []);
+              }
+              byFile.get(item.file)?.push(item.diagnostic);
+            }
+
+            for (const [filePath, fileDiagnostics] of byFile) {
+              const relativePath = filePath.replace(process.cwd(), '.');
+              output.push(`${relativePath}:`);
+
+              for (const diag of fileDiagnostics) {
+                const code = diag.code ? ` [${diag.code}]` : '';
+                const source = include_source && diag.source ? ` (${diag.source})` : '';
+                const { start, end } = diag.range;
+
+                output.push(`• ${diag.message}${code}${source}`);
+                output.push(
+                  `  Location: Line ${start.line + 1}, Column ${start.character + 1} to Line ${end.line + 1}, Column ${end.character + 1}`
+                );
+              }
+              output.push('');
+            }
+          }
+        } else {
+          // Flat list grouped by file
+          for (const [filePath, diagnostics] of diagnosticsMap) {
+            const relativePath = filePath.replace(process.cwd(), '.');
+            const fileCount = Math.min(diagnostics.length, max_diagnostics_per_file);
+
+            output.push(`${relativePath} (${fileCount} diagnostic${fileCount === 1 ? '' : 's'}):`);
+
+            const limitedDiagnostics = diagnostics.slice(0, max_diagnostics_per_file);
+            for (const diag of limitedDiagnostics) {
+              // Filter by severity if specified
+              if (allowedSeverities && allowedSeverities.length > 0) {
+                if (!diag.severity || !allowedSeverities.includes(diag.severity)) {
+                  continue;
+                }
+              }
+
+              const severityName =
+                diag.severity === 1
+                  ? 'Error'
+                  : diag.severity === 2
+                    ? 'Warning'
+                    : diag.severity === 3
+                      ? 'Information'
+                      : 'Hint';
+              const code = diag.code ? ` [${diag.code}]` : '';
+              const source = include_source && diag.source ? ` (${diag.source})` : '';
+              const { start, end } = diag.range;
+
+              output.push(`• ${severityName}${code}${source}: ${diag.message}`);
+              output.push(
+                `  Location: Line ${start.line + 1}, Column ${start.character + 1} to Line ${end.line + 1}, Column ${end.character + 1}`
+              );
+            }
+            output.push('');
+          }
+        }
+
+        // Summary footer
+        output.push(`Files with issues: ${filesWithIssues.size} of total files analyzed`);
+        if (filesWithIssues.size > 0) {
+          // Find file with most issues
+          let mostIssuesFile = '';
+          let mostIssuesCount = 0;
+          for (const [filePath, diagnostics] of diagnosticsMap) {
+            if (diagnostics.length > mostIssuesCount) {
+              mostIssuesCount = diagnostics.length;
+              mostIssuesFile = filePath;
+            }
+          }
+          if (mostIssuesFile) {
+            const relativePath = mostIssuesFile.replace(process.cwd(), '.');
+            output.push(`Most issues in: ${relativePath} (${mostIssuesCount} diagnostics)`);
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output.join('\n'),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting workspace diagnostics: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

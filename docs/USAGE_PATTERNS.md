@@ -485,6 +485,40 @@ Returns:
 - Code hints and suggestions
 - Exact location of each issue
 
+### Workspace-wide Diagnostics Analysis
+
+Get comprehensive diagnostics for all files in the workspace:
+
+```
+get_all_diagnostics:
+  severity_filter: ["error", "warning"]
+  exclude_files: ["**/*.test.ts", "dist/**"]
+  max_diagnostics_per_file: 10
+```
+
+**Advanced filtering:**
+```
+get_all_diagnostics:
+  include_files: ["src/**/*.ts", "src/**/*.tsx"] 
+  exclude_files: ["**/*.d.ts", "**/*.stories.ts"]
+  severity_filter: ["error"]
+  group_by_severity: true
+```
+
+**Project health overview:**
+```
+get_all_diagnostics:
+  group_by_severity: true
+  include_source: true
+```
+
+Returns:
+- Complete workspace diagnostic summary
+- Issues grouped by severity level
+- File-by-file breakdown with exact locations
+- Statistics on project health
+- Most problematic files identification
+
 ## API Documentation
 
 ### Complete Workflow Example
@@ -556,7 +590,7 @@ When exploring unknown codebases:
 
 1. **Use symbol_kind when available**: This helps narrow down results and improves accuracy.
 
-2. **Check diagnostics before refactoring**: Run `get_diagnostics` to ensure the file is error-free before making changes.
+2. **Check diagnostics before refactoring**: Run `get_diagnostics` on specific files or `get_all_diagnostics` for workspace-wide health checks to ensure code is error-free before making changes.
 
 3. **Use strict mode for ambiguous renames**: If `rename_symbol` returns multiple candidates, use `rename_symbol_strict` with specific coordinates.
 

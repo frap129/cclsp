@@ -3178,6 +3178,175 @@ export class LSPClient {
     return allSymbols;
   }
 
+  async getAllDiagnostics(
+    filePatterns?: string[],
+    excludePatterns?: string[]
+  ): Promise<Map<string, Diagnostic[]>> {
+    process.stderr.write('[DEBUG getAllDiagnostics] Starting workspace diagnostics collection\n');
+
+    const diagnosticsMap = new Map<string, Diagnostic[]>();
+
+    try {
+      // Get all workspace files using existing file scanner infrastructure
+      const workspaceFiles = await this.discoverWorkspaceFiles(filePatterns, excludePatterns);
+
+      process.stderr.write(
+        `[DEBUG getAllDiagnostics] Found ${workspaceFiles.length} files to analyze\n`
+      );
+
+      // Process files in batches to avoid overwhelming LSP servers
+      const batchSize = 10;
+      for (let i = 0; i < workspaceFiles.length; i += batchSize) {
+        const batch = workspaceFiles.slice(i, i + batchSize);
+
+        // Process batch concurrently
+        const batchPromises = batch.map(async (filePath) => {
+          try {
+            const diagnostics = await this.getDiagnostics(filePath);
+            if (diagnostics.length > 0) {
+              diagnosticsMap.set(filePath, diagnostics);
+              process.stderr.write(
+                `[DEBUG getAllDiagnostics] Found ${diagnostics.length} diagnostics in ${filePath}\n`
+              );
+            }
+          } catch (error) {
+            process.stderr.write(
+              `[DEBUG getAllDiagnostics] Error getting diagnostics for ${filePath}: ${error}\n`
+            );
+            // Continue processing other files
+          }
+        });
+
+        await Promise.all(batchPromises);
+
+        // Brief pause between batches to not overwhelm servers
+        if (i + batchSize < workspaceFiles.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      process.stderr.write(
+        `[DEBUG getAllDiagnostics] Completed diagnostics collection: ${diagnosticsMap.size} files with issues\n`
+      );
+
+      return diagnosticsMap;
+    } catch (error) {
+      process.stderr.write(`[DEBUG getAllDiagnostics] Error during workspace analysis: ${error}\n`);
+      return diagnosticsMap;
+    }
+  }
+
+  private async discoverWorkspaceFiles(
+    includePatterns?: string[],
+    excludePatterns?: string[]
+  ): Promise<string[]> {
+    const files: string[] = [];
+
+    // Scan all configured server directories
+    for (const serverConfig of this.config.servers) {
+      const serverDir = serverConfig.rootDir || process.cwd();
+
+      try {
+        const ig = await loadGitignore(serverDir);
+
+        // Add custom exclude patterns to ignore filter
+        if (excludePatterns) {
+          ig.add(excludePatterns);
+        }
+
+        const foundFiles = await this.scanDirectoryForFiles(
+          serverDir,
+          serverConfig.extensions,
+          Promise.resolve(ig),
+          includePatterns
+        );
+
+        files.push(...foundFiles);
+      } catch (error) {
+        process.stderr.write(
+          `[DEBUG discoverWorkspaceFiles] Error scanning ${serverDir}: ${error}\n`
+        );
+      }
+    }
+
+    // Remove duplicates
+    return [...new Set(files)];
+  }
+
+  private async scanDirectoryForFiles(
+    dirPath: string,
+    allowedExtensions: string[],
+    ignoreFilter: ReturnType<typeof loadGitignore>,
+    includePatterns?: string[]
+  ): Promise<string[]> {
+    const files: string[] = [];
+    const resolvedIgnoreFilter = await ignoreFilter;
+
+    const scanDirectory = async (
+      currentPath: string,
+      depth: number,
+      relativePath = ''
+    ): Promise<void> => {
+      if (depth > 3) return; // Limit depth to avoid deep recursion
+
+      try {
+        const entries = await readdir(currentPath);
+
+        for (const entry of entries) {
+          const fullPath = join(currentPath, entry);
+          const entryRelativePath = relativePath ? `${relativePath}/${entry}` : entry;
+
+          // Skip if ignored by gitignore
+          if (resolvedIgnoreFilter?.ignores(entryRelativePath)) continue;
+
+          try {
+            const stats = await stat(fullPath);
+
+            if (stats.isFile()) {
+              // Check if file matches allowed extensions
+              const extension = fullPath.split('.').pop()?.toLowerCase();
+              if (extension && allowedExtensions.includes(extension)) {
+                // Apply include patterns if specified
+                if (includePatterns) {
+                  const matchesInclude = includePatterns.some(
+                    (pattern) =>
+                      this.matchesGlobPattern(entryRelativePath, pattern) ||
+                      this.matchesGlobPattern(fullPath, pattern)
+                  );
+                  if (matchesInclude) {
+                    files.push(fullPath);
+                  }
+                } else {
+                  files.push(fullPath);
+                }
+              }
+            } else if (stats.isDirectory()) {
+              await scanDirectory(fullPath, depth + 1, entryRelativePath);
+            }
+          } catch (statError) {
+            // Skip files we can't stat
+          }
+        }
+      } catch (readdirError) {
+        // Skip directories we can't read
+      }
+    };
+
+    await scanDirectory(dirPath, 0);
+    return files;
+  }
+
+  private matchesGlobPattern(path: string, pattern: string): boolean {
+    // Simple glob pattern matching
+    const regexPattern = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+
+    const regex = new RegExp(`^${regexPattern}$`, 'i');
+    return regex.test(path) || regex.test(relative(process.cwd(), path));
+  }
+
   dispose(): void {
     for (const serverState of this.servers.values()) {
       // Clear restart timer if exists

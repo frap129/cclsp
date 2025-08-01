@@ -34,6 +34,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`rename_symbol`](#rename_symbol)
   - [`rename_symbol_strict`](#rename_symbol_strict)
   - [`get_diagnostics`](#get_diagnostics)
+  - [`get_all_diagnostics`](#get_all_diagnostics)
   - [`get_class_members`](#get_class_members)
   - [`get_method_signature`](#get_method_signature)
   - [`search_type`](#search_type)
@@ -408,6 +409,47 @@ Get language diagnostics (errors, warnings, hints) for a file. Supports both pul
 **Parameters:**
 - `file_path`: The path to the file
 
+### `get_all_diagnostics`
+
+Get comprehensive workspace-wide diagnostics analysis. This tool scans all configured files in the workspace to provide a complete project health assessment with errors, warnings, information messages, and hints.
+
+**Parameters:**
+- `severity_filter` (optional): Array of severity levels to include (`['error', 'warning', 'information', 'hint']`)
+- `include_files` (optional): Array of glob patterns for files to include (e.g., `['src/**/*.ts', '*.js']`)
+- `exclude_files` (optional): Array of glob patterns for files to exclude (e.g., `['**/*.test.ts', 'dist/**']`)
+- `max_diagnostics_per_file` (optional): Maximum diagnostics to show per file (default: 50)
+- `group_by_severity` (optional): Group results by severity level for better organization (default: true)
+- `include_source` (optional): Include diagnostic source tool information (default: true)
+
+**Features:**
+- **Workspace-wide scanning**: Analyzes all files across configured language servers
+- **Flexible filtering**: Filter by file patterns and diagnostic severity
+- **Organized output**: Groups diagnostics by severity with summary statistics
+- **Performance optimized**: Batch processing for large workspaces
+- **Gitignore-aware**: Automatically respects .gitignore patterns
+- **Error resilient**: Continues processing when individual files fail
+
+**Example Output:**
+```
+Workspace diagnostics summary:
+• 8 errors across files
+• 15 warnings across files
+• 3 hints across files
+
+ERRORS (8):
+
+./src/utils/validation.ts:
+• Type 'string' is not assignable to type 'number' [TS2322] (typescript)
+  Location: Line 45, Column 12 to Line 45, Column 18
+
+./src/components/Header.tsx:
+• Cannot find name 'React' [TS2304] (typescript)
+  Location: Line 1, Column 8 to Line 1, Column 13
+
+Files with issues: 12 of 156 total files analyzed
+Most issues in: ./src/utils/validation.ts (5 diagnostics)
+```
+
 ### `get_class_members`
 
 List all properties and methods of a class. Returns members with their types and signatures using LSP hover information, including namespace/package information and detailed parameter types.
@@ -608,6 +650,39 @@ Results: Found 3 diagnostics:
 - Error [TS2304]: Cannot find name 'undefinedVar' (Line 10, Column 5)
 - Warning [no-unused-vars]: 'config' is defined but never used (Line 25, Column 10)
 - Hint: Consider using const instead of let (Line 30, Column 1)
+```
+
+### Workspace-wide Health Assessment
+
+When assessing project quality across the entire codebase:
+
+```
+Claude: Let me analyze the overall health of this project
+> Using cclsp.get_all_diagnostics
+
+Workspace diagnostics summary:
+• 12 errors across files
+• 28 warnings across files
+• 5 hints across files
+
+ERRORS (12):
+
+./src/utils/validation.ts:
+• Type 'string' is not assignable to type 'number' [TS2322] (typescript)
+  Location: Line 45, Column 12 to Line 45, Column 18
+• Cannot find name 'ValidationError' [TS2304] (typescript)
+  Location: Line 23, Column 11 to Line 23, Column 25
+
+./src/components/Header.tsx:
+• Cannot find name 'React' [TS2304] (typescript)
+  Location: Line 1, Column 8 to Line 1, Column 13
+
+Files with issues: 15 of 89 total files analyzed (16.9%)
+Most issues in: ./src/utils/validation.ts (5 diagnostics)
+
+Claude: I can see this project has some critical issues that need attention. 
+The validation utility has type mismatches, and there are missing imports 
+in the React components. Let me help you fix these systematically.
 ```
 
 ### Exploring Class Structure

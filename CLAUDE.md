@@ -83,6 +83,7 @@ The server provides the following MCP tools that wrap LSP functionality:
 
 **Code Analysis Tools**
 - `get_diagnostics` - Get diagnostics for a single file
+- `get_all_diagnostics` - Get diagnostics for all files in workspace
 - `get_document_symbols` - List all symbols in a document
 - `get_completion` - Code completion/autocomplete functionality
 - `get_code_actions` - Get available code actions (quick fixes, refactoring, etc.)
