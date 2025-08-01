@@ -33,6 +33,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`find_references`](#find_references)
   - [`rename_symbol`](#rename_symbol)
   - [`rename_symbol_strict`](#rename_symbol_strict)
+  - [`delete_symbol`](#delete_symbol)
   - [`get_diagnostics`](#get_diagnostics)
   - [`get_all_diagnostics`](#get_all_diagnostics)
   - [`get_class_members`](#get_class_members)
@@ -57,6 +58,7 @@ When using AI-powered coding assistants like Claude, you often need to navigate 
 - 🔍 **Instant symbol navigation** - Jump to definitions without manually searching
 - 📚 **Complete reference finding** - Find all usages of functions, variables, and types
 - ✏️ **Safe symbol renaming** - Rename across entire codebases with confidence
+- 🗑️ **Smart symbol deletion** - Remove symbols with reference analysis and safety checks
 - 🌍 **Universal language support** - Works with any LSP-compatible language server
 - 🤖 **AI-friendly interface** - Designed for LLMs to understand and use effectively
 
@@ -64,6 +66,7 @@ When using AI-powered coding assistants like Claude, you often need to navigate 
 
 - **Go to Definition**: Find where symbols are defined
 - **Find References**: Locate all references to a symbol
+- **Symbol Deletion**: Remove symbols with safety analysis and reference handling
 - **Code Actions**: Get quick fixes, refactoring suggestions, and automated improvements
 - **Class Exploration**: List all members of a class with their types
 - **Method Signatures**: Get full method signatures with parameters and return types

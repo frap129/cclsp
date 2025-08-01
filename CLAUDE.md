@@ -80,6 +80,7 @@ The server provides the following MCP tools that wrap LSP functionality:
 - `find_definition` - Find symbol definitions
 - `find_references` - Find symbol references  
 - `rename_symbol` / `rename_symbol_strict` - Rename symbols
+- `delete_symbol` - Remove/delete symbol definitions with reference analysis
 
 **Code Analysis Tools**
 - `get_diagnostics` - Get diagnostics for a single file

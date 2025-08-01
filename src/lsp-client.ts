@@ -12,6 +12,7 @@ import type {
   CompletionItem,
   CompletionList,
   Config,
+  DeletionAnalysisResult,
   Diagnostic,
   DocumentDiagnosticReport,
   DocumentSymbol,
@@ -29,6 +30,7 @@ import type {
   ServerCapabilities,
   SignatureHelp,
   SignatureInformation,
+  SymbolDeletionInfo,
   SymbolInformation,
   SymbolMatch,
   TextEdit,
@@ -3395,6 +3397,217 @@ export class LSPClient {
     }
 
     return capabilitiesMap;
+  }
+
+  /**
+   * Analyze a symbol for safe deletion by finding its definition and all references
+   */
+  async analyzeSymbolForDeletion(
+    filePath: string,
+    symbolName: string,
+    symbolKind?: string
+  ): Promise<SymbolDeletionInfo | null> {
+    process.stderr.write(
+      `[DEBUG analyzeSymbolForDeletion] Analyzing symbol "${symbolName}"${symbolKind ? ` of kind "${symbolKind}"` : ''} in ${filePath}\n`
+    );
+
+    // Find the symbol using existing robust symbol resolution
+    const result = await this.findSymbolsByName(filePath, symbolName, symbolKind);
+    const { matches: symbolMatches } = result;
+
+    if (symbolMatches.length === 0) {
+      process.stderr.write(
+        `[DEBUG analyzeSymbolForDeletion] No symbols found for "${symbolName}"\n`
+      );
+      return null;
+    }
+
+    if (symbolMatches.length > 1) {
+      process.stderr.write(
+        `[DEBUG analyzeSymbolForDeletion] Multiple symbols found (${symbolMatches.length}), using first match\n`
+      );
+    }
+
+    const symbolMatch = symbolMatches[0];
+    if (!symbolMatch) {
+      return null;
+    }
+
+    // Find the definition location
+    const definitions = await this.findDefinition(filePath, symbolMatch.position);
+    if (definitions.length === 0) {
+      process.stderr.write(
+        `[DEBUG analyzeSymbolForDeletion] No definition found for symbol "${symbolName}"\n`
+      );
+      return null;
+    }
+
+    const definition = definitions[0];
+    if (!definition) {
+      return null;
+    }
+
+    // Find all references to the symbol
+    const references = await this.findReferences(filePath, symbolMatch.position, true);
+
+    process.stderr.write(
+      `[DEBUG analyzeSymbolForDeletion] Found ${references.length} references for "${symbolName}"\n`
+    );
+
+    // Analyze deletion safety
+    const canSafelyDelete = references.length <= 1; // Only the definition itself
+    const dependencyInfo: string[] = [];
+
+    // Add detailed reference analysis
+    const externalReferences = references.filter((ref) => {
+      const refPath = uriToPath(ref.uri);
+      const defPath = uriToPath(definition.uri);
+      return (
+        refPath !== defPath ||
+        ref.range.start.line !== definition.range.start.line ||
+        ref.range.start.character !== definition.range.start.character
+      );
+    });
+
+    if (externalReferences.length > 0) {
+      dependencyInfo.push(`${externalReferences.length} external reference(s) found`);
+
+      // Group references by file for better analysis
+      const referencesByFile = new Map<string, Location[]>();
+      for (const ref of externalReferences) {
+        const refPath = uriToPath(ref.uri);
+        if (!referencesByFile.has(refPath)) {
+          referencesByFile.set(refPath, []);
+        }
+        referencesByFile.get(refPath)?.push(ref);
+      }
+
+      for (const [refPath, fileRefs] of referencesByFile) {
+        dependencyInfo.push(`${fileRefs.length} reference(s) in ${refPath}`);
+      }
+    } else {
+      dependencyInfo.push('No external references found - safe to delete');
+    }
+
+    return {
+      definition,
+      references,
+      canSafelyDelete,
+      dependencyInfo,
+      symbolMatch,
+    };
+  }
+
+  /**
+   * Generate workspace edits to delete a symbol and optionally its references
+   */
+  async deleteSymbolWithEdits(
+    symbolInfo: SymbolDeletionInfo,
+    deleteReferences: boolean
+  ): Promise<WorkspaceEdit> {
+    process.stderr.write(
+      `[DEBUG deleteSymbolWithEdits] Generating edits for symbol deletion (deleteReferences: ${deleteReferences})\n`
+    );
+
+    const workspaceEdit: WorkspaceEdit = { changes: {} };
+
+    try {
+      // Calculate edit for the definition
+      const definitionPath = uriToPath(symbolInfo.definition.uri);
+      const definitionRange = symbolInfo.definition.range;
+
+      // Read file to determine if we should delete the entire line or just the symbol
+      const fileContent = readFileSync(definitionPath, 'utf-8');
+      const lines = fileContent.split('\n');
+
+      let editRange = definitionRange;
+      let newText = '';
+
+      // Check if the symbol occupies the entire line(s)
+      const startLine = definitionRange.start.line;
+      const endLine = definitionRange.end.line;
+
+      if (startLine < lines.length) {
+        const startLineText = lines[startLine];
+        const endLineText = lines[endLine];
+
+        // Check if the definition spans entire lines
+        const beforeSymbol = startLineText?.substring(0, definitionRange.start.character) || '';
+        const afterSymbol = endLineText?.substring(definitionRange.end.character) || '';
+
+        if (beforeSymbol.trim() === '' && afterSymbol.trim() === '') {
+          // Symbol occupies entire line(s), delete the whole lines including newlines
+          editRange = {
+            start: { line: startLine, character: 0 },
+            end: {
+              line: endLine < lines.length - 1 ? endLine + 1 : endLine,
+              character: endLine < lines.length - 1 ? 0 : endLineText?.length || 0,
+            },
+          };
+          newText = '';
+        }
+      }
+
+      // Add definition edit
+      const definitionEdit: TextEdit = {
+        range: editRange,
+        newText,
+      };
+
+      if (!workspaceEdit.changes) {
+        workspaceEdit.changes = {};
+      }
+      workspaceEdit.changes[symbolInfo.definition.uri] = [definitionEdit];
+
+      // Add reference edits if requested
+      if (deleteReferences) {
+        const referencesByFile = new Map<string, TextEdit[]>();
+
+        for (const reference of symbolInfo.references) {
+          // Skip the definition itself if it's in the references
+          const refPath = uriToPath(reference.uri);
+          const defPath = uriToPath(symbolInfo.definition.uri);
+
+          if (
+            refPath === defPath &&
+            reference.range.start.line === symbolInfo.definition.range.start.line &&
+            reference.range.start.character === symbolInfo.definition.range.start.character
+          ) {
+            continue; // Skip the definition
+          }
+
+          if (!referencesByFile.has(reference.uri)) {
+            referencesByFile.set(reference.uri, []);
+          }
+
+          // For references, we typically just remove the symbol usage, not entire lines
+          const referenceEdit: TextEdit = {
+            range: reference.range,
+            newText: '', // Remove the reference
+          };
+
+          referencesByFile.get(reference.uri)?.push(referenceEdit);
+        }
+
+        // Add reference edits to workspace edit
+        for (const [uri, edits] of referencesByFile) {
+          if (workspaceEdit.changes[uri]) {
+            workspaceEdit.changes[uri].push(...edits);
+          } else {
+            workspaceEdit.changes[uri] = edits;
+          }
+        }
+      }
+
+      process.stderr.write(
+        `[DEBUG deleteSymbolWithEdits] Generated ${Object.keys(workspaceEdit.changes).length} file edit(s)\n`
+      );
+
+      return workspaceEdit;
+    } catch (error) {
+      process.stderr.write(`[DEBUG deleteSymbolWithEdits] Error generating edits: ${error}\n`);
+      throw error;
+    }
   }
 
   /**

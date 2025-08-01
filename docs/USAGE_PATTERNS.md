@@ -7,6 +7,8 @@ This document outlines common usage patterns for the CCLSP MCP server in develop
 2. [Code Exploration](#code-exploration)
 3. [Workspace Discovery](#workspace-discovery)
 4. [Refactoring](#refactoring)
+   - [Safe Symbol Renaming](#safe-symbol-renaming)
+   - [Safe Symbol Deletion](#safe-symbol-deletion)
 5. [Debugging and Diagnostics](#debugging-and-diagnostics)
 6. [API Documentation](#api-documentation)
 7. [Server Capability Inspection](#server-capability-inspection)
@@ -466,6 +468,113 @@ rename_symbol_strict:
   line: 42
   character: 10
   new_name: "newConfigName"
+```
+
+### Safe Symbol Deletion
+
+Remove symbols from your codebase with comprehensive reference analysis:
+
+#### Basic Symbol Deletion (Dry Run)
+
+Preview deletion to understand impact before applying:
+
+```
+delete_symbol:
+  file_path: "src/utils/deprecated.ts"
+  symbol_name: "unusedFunction"
+  symbol_kind: "function"
+  dry_run: true  # default: preview only
+```
+
+Returns detailed analysis:
+- Symbol location and line count
+- All references to the symbol
+- Safety assessment (safe/unsafe to delete)
+- Preview of changes to be made
+
+#### Safe Deletion (No References)
+
+Delete symbols that have no external references:
+
+```
+delete_symbol:
+  file_path: "src/utils/helpers.ts"
+  symbol_name: "deprecatedUtil"
+  symbol_kind: "function"
+  dry_run: false
+```
+
+This will only proceed if the symbol has no references, ensuring your code won't break.
+
+#### Delete Symbol and All References
+
+Remove a symbol and all its usages across the codebase:
+
+```
+delete_symbol:
+  file_path: "src/models/old-model.ts"
+  symbol_name: "LegacyModel"
+  symbol_kind: "class"
+  delete_references: true
+  dry_run: false
+```
+
+Use cases:
+- Removing deprecated APIs and all their usages
+- Cleaning up after major refactoring
+- Removing experimental features
+
+#### Force Deletion (Breaking Changes)
+
+Delete symbol definition even when references exist:
+
+```
+delete_symbol:
+  file_path: "src/api/deprecated.ts"
+  symbol_name: "oldApiMethod"
+  symbol_kind: "method"
+  force_delete: true
+  dry_run: false
+```
+
+**⚠️ Warning**: This may break your code. Use when:
+- You want to identify all usages through compile errors
+- Planning to replace usages in a follow-up step
+- Working with experimental/internal code
+
+#### Deletion Workflow Best Practices
+
+1. **Always start with dry run:**
+```
+delete_symbol:
+  file_path: "src/components/Button.tsx"
+  symbol_name: "OldButton"
+  symbol_kind: "class"
+  dry_run: true  # Analyze first
+```
+
+2. **For safe deletion (recommended):**
+```
+delete_symbol:
+  file_path: "src/components/Button.tsx"
+  symbol_name: "OldButton"
+  symbol_kind: "class"
+  delete_references: true
+  dry_run: false
+```
+
+3. **For gradual migration:**
+```
+# Step 1: Preview impact
+delete_symbol:
+  symbol_name: "OldAPI"
+  dry_run: true
+
+# Step 2: Update all references manually
+# Step 3: Delete safely
+delete_symbol:
+  symbol_name: "OldAPI"
+  dry_run: false
 ```
 
 ## Debugging and Diagnostics

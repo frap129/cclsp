@@ -702,6 +702,53 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: 'delete_symbol',
+        description: 'Delete a symbol definition and optionally handle its references',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file containing the symbol',
+            },
+            symbol_name: {
+              type: 'string',
+              description: 'The name of the symbol to delete',
+            },
+            symbol_kind: {
+              type: 'string',
+              description: 'The kind of symbol to delete',
+              enum: [
+                'function',
+                'class',
+                'variable',
+                'method',
+                'property',
+                'interface',
+                'type',
+                'enum',
+              ],
+            },
+            delete_references: {
+              type: 'boolean',
+              description: 'Whether to also delete references to the symbol',
+              default: false,
+            },
+            dry_run: {
+              type: 'boolean',
+              description: 'Preview changes without applying them',
+              default: true,
+            },
+            force_delete: {
+              type: 'boolean',
+              description: 'Delete even if references exist (when delete_references is false)',
+              default: false,
+            },
+          },
+          required: ['file_path', 'symbol_name'],
+        },
+      },
     ],
   };
 });
@@ -2779,6 +2826,204 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error checking capabilities: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'delete_symbol') {
+      const {
+        file_path,
+        symbol_name,
+        symbol_kind,
+        delete_references = false,
+        dry_run = true,
+        force_delete = false,
+      } = args as {
+        file_path: string;
+        symbol_name: string;
+        symbol_kind?: string;
+        delete_references?: boolean;
+        dry_run?: boolean;
+        force_delete?: boolean;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        // Analyze the symbol for deletion
+        const symbolInfo = await lspClient.analyzeSymbolForDeletion(
+          absolutePath,
+          symbol_name,
+          symbol_kind
+        );
+
+        if (!symbolInfo) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No symbol found with name "${symbol_name}"${symbol_kind ? ` and kind "${symbol_kind}"` : ''} in ${file_path}. Please verify the symbol name and ensure the language server is properly configured.`,
+              },
+            ],
+          };
+        }
+
+        // Generate response based on analysis
+        const { symbolMatch, definition, references, canSafelyDelete, dependencyInfo } = symbolInfo;
+        const kindStr = lspClient.symbolKindToString(symbolMatch.kind);
+        const defPath = uriToPath(definition.uri);
+        const defLocation = `${defPath}:${definition.range.start.line + 1}:${definition.range.start.character + 1}`;
+
+        // Calculate line count for the definition
+        const defStartLine = definition.range.start.line;
+        const defEndLine = definition.range.end.line;
+        const lineCount = defEndLine - defStartLine + 1;
+
+        let responseText = `Symbol deletion analysis for "${symbol_name}":\n\n`;
+
+        // Symbol found section
+        responseText += 'Symbol found:\n';
+        responseText += `• ${symbol_name} (${kindStr}) at ${defLocation}\n`;
+        responseText += `  Lines ${defStartLine + 1}-${defEndLine + 1} (${lineCount} lines of code)\n\n`;
+
+        // References section
+        responseText += `References found: ${references.length} reference${references.length === 1 ? '' : 's'}\n`;
+
+        if (canSafelyDelete) {
+          responseText += '✓ Safe to delete - no external references found\n\n';
+        } else {
+          responseText += '⚠️  Cannot safely delete - references exist:\n';
+
+          // Show external references (excluding the definition itself)
+          const externalRefs = references.filter((ref) => {
+            const refPath = uriToPath(ref.uri);
+            return (
+              refPath !== defPath ||
+              ref.range.start.line !== definition.range.start.line ||
+              ref.range.start.character !== definition.range.start.character
+            );
+          });
+
+          for (const ref of externalRefs.slice(0, 10)) {
+            // Limit to first 10 references
+            const refPath = uriToPath(ref.uri);
+            const refLocation = `${refPath}:${ref.range.start.line + 1}:${ref.range.start.character + 1}`;
+            responseText += `  • ${refLocation}\n`;
+          }
+
+          if (externalRefs.length > 10) {
+            responseText += `  • ... and ${externalRefs.length - 10} more reference(s)\n`;
+          }
+          responseText += '\n';
+        }
+
+        // Handle dry run vs actual execution
+        if (!dry_run) {
+          // Check safety and force_delete requirements
+          if (!canSafelyDelete && !delete_references && !force_delete) {
+            responseText += 'Cannot delete: Symbol has references. Options:\n';
+            responseText += '1. Set delete_references=true to remove all references\n';
+            responseText += '2. Set force_delete=true to delete definition only (may break code)\n';
+            responseText += '3. Set dry_run=true to preview changes first\n';
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: responseText,
+                },
+              ],
+            };
+          }
+
+          // Apply the deletion
+          const workspaceEdit = await lspClient.deleteSymbolWithEdits(
+            symbolInfo,
+            delete_references
+          );
+          const { content: editResult } = await lspClient.applyWorkspaceEdit(workspaceEdit);
+
+          responseText += `Deletion completed:\n${editResult}\n`;
+
+          if (force_delete && !canSafelyDelete && !delete_references) {
+            responseText +=
+              '\n⚠️  Warning: Symbol definition deleted but references remain. This may break your code.\n';
+          }
+        } else {
+          // Dry run mode - show preview
+          const workspaceEdit = await lspClient.deleteSymbolWithEdits(
+            symbolInfo,
+            delete_references
+          );
+
+          responseText += 'Deletion preview:\n';
+
+          if (workspaceEdit.changes) {
+            let totalEdits = 0;
+            let filesModified = 0;
+
+            for (const [uri, edits] of Object.entries(workspaceEdit.changes)) {
+              const filePath = uriToPath(uri);
+              const relativePath = filePath.replace(process.cwd(), '.');
+              filesModified++;
+              totalEdits += edits.length;
+
+              responseText += `${relativePath}:\n`;
+
+              for (const edit of edits.slice(0, 3)) {
+                // Show first 3 edits per file
+                const { start, end } = edit.range;
+                const isRemoval = edit.newText === '';
+                const editType = isRemoval ? 'Remove' : 'Replace';
+                responseText += `  - ${editType} lines ${start.line + 1}-${end.line + 1}\n`;
+
+                if (!isRemoval && edit.newText.length < 100) {
+                  responseText += `    With: "${edit.newText}"\n`;
+                }
+              }
+
+              if (edits.length > 3) {
+                responseText += `  - ... and ${edits.length - 3} more edit(s)\n`;
+              }
+              responseText += '\n';
+            }
+
+            responseText += 'Changes to apply:\n';
+            responseText += `• ${filesModified} file${filesModified === 1 ? '' : 's'} modified\n`;
+            responseText += `• ${totalEdits} edit${totalEdits === 1 ? '' : 's'} total\n`;
+
+            if (delete_references && references.length > 1) {
+              responseText += `• ${references.length - 1} reference${references.length - 1 === 1 ? '' : 's'} removed\n`;
+            }
+          }
+
+          responseText += '\nStatus: ';
+          if (canSafelyDelete || delete_references || force_delete) {
+            responseText += 'Ready for deletion\n';
+            responseText += 'Use dry_run=false to apply these changes.';
+          } else {
+            responseText += 'Cannot proceed - references exist.\n';
+            responseText += 'Options:\n';
+            responseText += '1. Set delete_references=true to remove all references\n';
+            responseText += '2. Set force_delete=true to delete definition only (may break code)';
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: responseText,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error deleting symbol: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

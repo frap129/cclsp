@@ -425,6 +425,24 @@ export interface Hover {
   range?: Range;
 }
 
+export interface SymbolDeletionInfo {
+  definition: Location;
+  references: Location[];
+  canSafelyDelete: boolean;
+  dependencyInfo: string[];
+  symbolMatch: SymbolMatch;
+}
+
+export interface DeletionAnalysisResult {
+  symbolInfo: SymbolDeletionInfo;
+  deletionPreview: {
+    definitionEdit: TextEdit;
+    referenceEdits: TextEdit[];
+    affectedFiles: string[];
+    totalLinesRemoved: number;
+  };
+}
+
 export interface ServerCapabilities {
   textDocumentSync?: unknown;
   hoverProvider?: boolean | unknown;
