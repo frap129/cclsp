@@ -343,6 +343,24 @@ search_type:
   case_sensitive: false  # default
 ```
 
+### Comprehensive Workspace Symbol Search
+
+Use the new workspace symbols tool for enhanced workspace-wide searching:
+
+```
+get_workspace_symbols:
+  query: "UserService"
+  symbol_kind: "class"  # optional filter
+  max_results: 50       # optional limit
+  case_sensitive: false # optional sensitivity
+```
+
+This provides more comprehensive results than `search_type` including:
+- Multi-language server support
+- Performance metrics
+- Container information
+- Grouped output by symbol kind
+
 ### Using Wildcards for Pattern Matching
 
 Find symbols matching patterns:
@@ -354,9 +372,10 @@ search_type:
 ```
 
 ```
-search_type:
-  type_name: "get*"  # find all symbols starting with "get"
-  type_kind: "method"
+get_workspace_symbols:
+  query: "get*"  # find all symbols starting with "get"
+  symbol_kind: "method"
+  max_results: 25
 ```
 
 ```
@@ -364,6 +383,49 @@ search_type:
   type_name: "?etUser"  # find symbols like "getUser", "setUser"
   type_kind: "function"
 ```
+
+### Advanced Pattern Examples
+
+**Find all API endpoints:**
+```
+get_workspace_symbols:
+  query: "*Controller"
+  symbol_kind: "class"
+```
+
+**Find all error types:**
+```
+get_workspace_symbols:
+  query: "*Error*"
+  symbol_kind: "class"
+  case_sensitive: false
+```
+
+**Find specific method patterns:**
+```
+get_workspace_symbols:
+  query: "handle*"
+  symbol_kind: "method"
+  max_results: 10
+```
+
+### Workspace vs Document vs Type Search Comparison
+
+**Use `get_workspace_symbols` when:**
+- You need comprehensive workspace-wide search
+- You want performance metrics and detailed output
+- You're working with multiple language servers
+- You need container/namespace information
+
+**Use `search_type` when:**
+- You need basic workspace search functionality
+- You're looking for specific types with advanced filtering
+- You want wildcard pattern matching with case sensitivity options
+
+**Use `get_document_symbols` when:**
+- You want to explore a specific file's structure
+- You need hierarchical symbol information
+- You want to understand file organization
 
 ### Discovering API Endpoints
 
@@ -431,9 +493,9 @@ Here's a complete workflow for exploring and understanding an API:
 
 1. **Find the main API class**:
    ```
-   search_type:
-     type_name: "ApiClient"
-     type_kind: "class"
+   get_workspace_symbols:
+     query: "ApiClient"
+     symbol_kind: "class"
    ```
 
 2. **Get complete file overview**:
@@ -472,8 +534,8 @@ When exploring unknown codebases:
 
 1. **Find relevant files**:
    ```
-   search_type:
-     type_name: "*Api*"
+   get_workspace_symbols:
+     query: "*Api*"
      case_sensitive: false
    ```
 
@@ -499,7 +561,8 @@ When exploring unknown codebases:
 3. **Use strict mode for ambiguous renames**: If `rename_symbol` returns multiple candidates, use `rename_symbol_strict` with specific coordinates.
 
 4. **Combine tools for comprehensive understanding**: 
-   - Use `search_type` for workspace-wide discovery
+   - Use `get_workspace_symbols` for enhanced workspace-wide discovery
+   - Use `search_type` for basic workspace search with advanced filtering  
    - Use `get_document_symbols` for file-level exploration  
    - Use `get_class_members` for detailed class analysis
    - Use `get_method_signature` for complete API documentation
@@ -511,13 +574,19 @@ When exploring unknown codebases:
    - Set appropriate `max_results` to limit output for better readability
    - Enable `include_auto_import` when working with external libraries
 
-6. **Start with discovery tools**: When exploring unknown codebases, begin with `search_type` and `get_document_symbols` to understand the overall structure.
+6. **Start with discovery tools**: When exploring unknown codebases, begin with `get_workspace_symbols` and `get_document_symbols` to understand the overall structure.
 
-7. **Use wildcards effectively**: Leverage `*` and `?` in `search_type` for pattern-based discovery.
+7. **Use workspace symbols effectively**:
+   - Use `get_workspace_symbols` for comprehensive cross-file searches
+   - Set appropriate `max_results` to limit output for better readability
+   - Use `symbol_kind` filters to narrow down large result sets
+   - Leverage wildcard patterns for pattern-based discovery
 
-8. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
+8. **Use wildcards effectively**: Leverage `*` and `?` in workspace symbol queries for pattern-based discovery.
 
-9. **Use formatting strategically**: 
+9. **Verify LSP server configuration**: Ensure the appropriate language server is configured for your file types in `cclsp.json`.
+
+10. **Use formatting strategically**: 
    - Always use preview mode first to review formatting changes before applying
    - Use `format_document` before code reviews to ensure consistent style
    - Apply range formatting for localized changes to avoid unnecessary diffs
@@ -536,9 +605,10 @@ If tools return no results:
 2. Check that the appropriate LSP server is configured for the file type
 3. Ensure the symbol name is spelled correctly
 4. Try without `symbol_kind` parameter for broader search
-5. For workspace searches, try using wildcards in `search_type`
+5. For workspace searches, try using `get_workspace_symbols` with wildcards
 6. For file exploration, use `get_document_symbols` to see what symbols exist
 7. Check server logs for any LSP errors
+8. For workspace symbols, ensure workspace has been indexed by LSP servers
 
 ## Language-Specific Notes
 

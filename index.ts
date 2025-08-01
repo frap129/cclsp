@@ -489,6 +489,54 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path', 'line', 'character'],
         },
       },
+      {
+        name: 'get_workspace_symbols',
+        description: 'Search for symbols across the entire workspace by name or pattern',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query for symbols (supports wildcards and partial matching)',
+            },
+            symbol_kind: {
+              type: 'string',
+              description: 'Optional: Filter by symbol kind',
+              enum: [
+                'class',
+                'function',
+                'variable',
+                'method',
+                'property',
+                'field',
+                'constructor',
+                'enum',
+                'interface',
+                'namespace',
+                'module',
+                'constant',
+                'file',
+                'package',
+                'struct',
+                'event',
+                'operator',
+                'type_parameter',
+              ],
+            },
+            max_results: {
+              type: 'number',
+              description: 'Maximum number of results to return',
+              default: 100,
+            },
+            case_sensitive: {
+              type: 'boolean',
+              description: 'Whether search should be case sensitive',
+              default: false,
+            },
+          },
+          required: ['query'],
+        },
+      },
     ],
   };
 });
@@ -2055,6 +2103,168 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting signature help: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_workspace_symbols') {
+      const {
+        query,
+        symbol_kind,
+        max_results = 100,
+        case_sensitive = false,
+      } = args as {
+        query: string;
+        symbol_kind?: string;
+        max_results?: number;
+        case_sensitive?: boolean;
+      };
+
+      try {
+        const startTime = Date.now();
+        const allSymbols = await lspClient.getWorkspaceSymbols(query);
+        const searchTime = Date.now() - startTime;
+
+        if (allSymbols.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No symbols found matching "${query}"${symbol_kind ? ` of kind "${symbol_kind}"` : ''} across the workspace.\n\nMake sure:\n1. The symbol name is spelled correctly\n2. The language servers are configured for the file types containing these symbols\n3. The workspace has been properly indexed by the language servers`,
+              },
+            ],
+          };
+        }
+
+        // Filter by symbol kind if specified
+        let filteredSymbols = allSymbols;
+        if (symbol_kind) {
+          filteredSymbols = allSymbols.filter(
+            (symbol) =>
+              lspClient.symbolKindToString(symbol.kind).toLowerCase() === symbol_kind.toLowerCase()
+          );
+        }
+
+        // Apply case sensitivity and name filtering
+        const finalSymbols = filteredSymbols.filter((symbol) => {
+          const symbolName = case_sensitive ? symbol.name : symbol.name.toLowerCase();
+          const searchQuery = case_sensitive ? query : query.toLowerCase();
+
+          // Support wildcard patterns
+          if (query.includes('*') || query.includes('?')) {
+            const escapedPattern = searchQuery
+              .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+              .replace(/\*/g, '.*')
+              .replace(/\?/g, '.');
+            const regex = new RegExp(`^${escapedPattern}$`, case_sensitive ? '' : 'i');
+            return regex.test(symbol.name);
+          }
+
+          // For exact or partial matching
+          return symbolName.includes(searchQuery);
+        });
+
+        // Limit results
+        const limitedSymbols = finalSymbols.slice(0, max_results);
+
+        if (limitedSymbols.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Found ${allSymbols.length} symbols but none matched the query "${query}"${symbol_kind ? ` with kind "${symbol_kind}"` : ''}${case_sensitive ? ' (case sensitive)' : ''}.`,
+              },
+            ],
+          };
+        }
+
+        // Group symbols by kind for better organization
+        const symbolsByKind = new Map<string, typeof limitedSymbols>();
+        for (const symbol of limitedSymbols) {
+          const kindStr = lspClient.symbolKindToString(symbol.kind);
+          if (!symbolsByKind.has(kindStr)) {
+            symbolsByKind.set(kindStr, []);
+          }
+          symbolsByKind.get(kindStr)?.push(symbol);
+        }
+
+        // Build formatted output
+        const output: string[] = [
+          `Found ${limitedSymbols.length} symbol${limitedSymbols.length === 1 ? '' : 's'} matching "${query}" across workspace:`,
+        ];
+
+        // Sort by symbol kind priority
+        const kindOrder = [
+          'class',
+          'interface',
+          'enum',
+          'struct',
+          'function',
+          'method',
+          'constructor',
+          'property',
+          'field',
+          'variable',
+          'constant',
+          'namespace',
+          'module',
+          'package',
+        ];
+
+        const sortedKinds = Array.from(symbolsByKind.keys()).sort((a, b) => {
+          const aIndex = kindOrder.indexOf(a);
+          const bIndex = kindOrder.indexOf(b);
+          if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+
+        for (const kindStr of sortedKinds) {
+          const symbols = symbolsByKind.get(kindStr);
+          if (!symbols || symbols.length === 0) continue;
+
+          const capitalizedKind = kindStr.charAt(0).toUpperCase() + kindStr.slice(1);
+          output.push(`\n${capitalizedKind}${symbols.length === 1 ? '' : 's'}:`);
+
+          for (const symbol of symbols) {
+            const filePath = uriToPath(symbol.location.uri);
+            const location = `${filePath}:${symbol.location.range.start.line + 1}:${symbol.location.range.start.character + 1}`;
+
+            let symbolLine = `• ${symbol.name} at ${location}`;
+            if (symbol.containerName) {
+              symbolLine += `\n  Container: ${symbol.containerName}`;
+            }
+            output.push(symbolLine);
+          }
+        }
+
+        // Add search statistics
+        if (limitedSymbols.length < finalSymbols.length) {
+          output.push(
+            `\nResults: ${limitedSymbols.length} shown, ${finalSymbols.length} total matches`
+          );
+        } else {
+          output.push(`\nResults: ${limitedSymbols.length} total`);
+        }
+        output.push(`Search completed in ${searchTime}ms`);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output.join('\n'),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error searching workspace symbols: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

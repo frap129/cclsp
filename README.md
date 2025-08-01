@@ -38,6 +38,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`get_method_signature`](#get_method_signature)
   - [`search_type`](#search_type)
   - [`get_document_symbols`](#get_document_symbols)
+  - [`get_workspace_symbols`](#get_workspace_symbols)
   - [`get_code_actions`](#get_code_actions)
 - [💡 Real-world Examples](#-real-world-examples)
   - [Finding Function Definitions](#finding-function-definitions)
@@ -468,6 +469,25 @@ Get all symbols (classes, functions, variables, etc.) in a document with their l
 - **Location information**: Provides exact line and character positions
 - **Discovery-oriented**: Ideal for code exploration and understanding file architecture
 
+### `get_workspace_symbols`
+
+Search for symbols across the entire workspace by name or pattern. Perfect for finding symbols when you don't know their exact location or exploring large codebases.
+
+**Parameters:**
+- `query`: Search query for symbols (supports wildcards and partial matching)
+- `symbol_kind`: Optional - Filter by symbol kind (`class`, `function`, `variable`, `method`, `property`, `field`, `constructor`, `enum`, `interface`, `namespace`, `module`, `constant`, `file`, `package`, `struct`, `event`, `operator`, `type_parameter`)
+- `max_results`: Maximum number of results to return (default: 100)
+- `case_sensitive`: Whether search should be case sensitive (default: false)
+
+**Features:**
+- **Workspace-wide search**: Searches across all files and language servers in the workspace
+- **Wildcard support**: Use `*` and `?` for pattern matching (e.g., `*Error*`, `get*`, `?etUser`)
+- **Symbol filtering**: Filter results by specific symbol types
+- **Multi-language support**: Queries all configured language servers simultaneously
+- **Performance metrics**: Shows search time and result statistics
+- **Grouped output**: Results organized by symbol kind with file locations and container information
+- **Container information**: Shows which namespace/module/class contains each symbol
+
 ### `get_code_actions`
 
 Get available code actions (quick fixes, refactoring suggestions, etc.) for a specific location or range in a file. Code actions provide automated code improvements and transformations.
@@ -654,6 +674,66 @@ Results: Found 12 symbols matching "*Error*":
 • ApiError (class) at src/services/api-client.ts:15:1
 • logError (method) at src/logger.ts:45:3
 • parseErrorResponse (function) at src/utils/response.ts:23:1
+```
+
+### Workspace Symbol Search
+
+When you need to find symbols across the entire project:
+
+```
+Claude: I need to find all UserService implementations in this codebase
+> Using cclsp.get_workspace_symbols with query "UserService"
+
+Found 7 symbols matching "UserService" across workspace:
+
+Classes:
+• UserService at src/services/UserService.ts:15:1
+  Container: services
+
+• MockUserService at tests/mocks/UserService.mock.ts:8:1
+  Container: mocks
+
+Interfaces:
+• IUserService at src/interfaces/UserService.interface.ts:5:1
+  Container: interfaces
+
+Functions:
+• createUserService at src/factories/userServiceFactory.ts:12:1
+  Container: factories
+
+• getUserService at src/utils/serviceRegistry.ts:45:1
+  Container: utils
+
+Variables:
+• userService at src/app.ts:23:1
+  Container: app
+
+• defaultUserService at src/config/services.ts:18:1
+  Container: config
+
+Results: 7 total
+Search completed in 145ms
+```
+
+### Pattern-Based Workspace Search
+
+When you want to find symbols matching a pattern:
+
+```
+Claude: I need to find all error handling functions and classes
+> Using cclsp.get_workspace_symbols with query "*Error*"
+
+Found 12 symbols matching "*Error*" across workspace:
+
+Classes:
+• CustomError at src/utils/errors.ts:5:1
+• ApiError at src/services/api-client.ts:15:1
+• ValidationError at src/validators/error.ts:8:1
+
+Functions:
+• handleError at src/handlers/error.ts:10:1
+• logError at src/logger.ts:45:3
+• parseErrorResponse at src/utils/response.ts:23:1
 ```
 
 ### Exploring Unfamiliar Files

@@ -3130,6 +3130,54 @@ export class LSPClient {
     }
   }
 
+  async getWorkspaceSymbols(query: string): Promise<SymbolInformation[]> {
+    process.stderr.write(
+      `[DEBUG getWorkspaceSymbols] Searching for symbols with query: "${query}"\n`
+    );
+
+    // Ensure all configured servers are ready with workspace context
+    const availableServers = await this.ensureAllServersReady();
+
+    if (availableServers.length === 0) {
+      process.stderr.write('[DEBUG getWorkspaceSymbols] No LSP servers could be initialized\n');
+      return [];
+    }
+
+    const allSymbols: SymbolInformation[] = [];
+
+    // Send workspace/symbol requests to all available servers
+    for (const [serverKey, serverState] of availableServers) {
+      try {
+        process.stderr.write(`[DEBUG getWorkspaceSymbols] Querying server: ${serverKey}\n`);
+
+        const symbols = (await this.sendRequest(serverState.process, 'workspace/symbol', {
+          query: query,
+        })) as SymbolInformation[] | null;
+
+        if (symbols && symbols.length > 0) {
+          allSymbols.push(...symbols);
+          process.stderr.write(
+            `[DEBUG getWorkspaceSymbols] Server ${serverKey} returned ${symbols.length} symbols\n`
+          );
+        } else {
+          process.stderr.write(
+            `[DEBUG getWorkspaceSymbols] Server ${serverKey} returned no symbols\n`
+          );
+        }
+      } catch (error) {
+        process.stderr.write(
+          `[DEBUG getWorkspaceSymbols] Error querying server ${serverKey}: ${error}\n`
+        );
+      }
+    }
+
+    process.stderr.write(
+      `[DEBUG getWorkspaceSymbols] Found ${allSymbols.length} total symbols across ${availableServers.length} servers\n`
+    );
+
+    return allSymbols;
+  }
+
   dispose(): void {
     for (const serverState of this.servers.values()) {
       // Clear restart timer if exists
