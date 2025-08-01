@@ -23,8 +23,11 @@ import type {
   Location,
   MarkupContent,
   ParameterInfo,
+  ParameterInformation,
   Position,
   Range,
+  SignatureHelp,
+  SignatureInformation,
   SymbolInformation,
   SymbolMatch,
   TextEdit,
@@ -1826,24 +1829,42 @@ export class LSPClient {
     return null;
   }
 
-  private async getSignatureHelp(
+  async getSignatureHelp(
     filePath: string,
-    position: Position
-  ): Promise<
-    | {
-        signatures: Array<{
-          label: string;
-          documentation?: string;
-          parameters?: Array<{
-            label: string | [number, number];
-            documentation?: string;
-          }>;
-        }>;
-        activeSignature?: number;
-        activeParameter?: number;
+    position: Position,
+    triggerCharacter?: string
+  ): Promise<SignatureHelp | null> {
+    process.stderr.write(
+      `[DEBUG getSignatureHelp] Getting signature help for ${filePath} at ${position.line}:${position.character}${triggerCharacter ? ` triggered by '${triggerCharacter}'` : ''}\n`
+    );
+
+    const positions = this.generateMultiPositions(position);
+
+    for (const pos of positions) {
+      try {
+        const result = await this.getSignatureHelpAtPosition(filePath, pos, triggerCharacter);
+        if (result && result.signatures.length > 0) {
+          process.stderr.write(
+            `[DEBUG getSignatureHelp] Found ${result.signatures.length} signatures at position ${pos.line}:${pos.character}\n`
+          );
+          return result;
+        }
+      } catch (error) {
+        process.stderr.write(
+          `[DEBUG getSignatureHelp] Error at position ${pos.line}:${pos.character}: ${error}\n`
+        );
       }
-    | undefined
-  > {
+    }
+
+    process.stderr.write('[DEBUG getSignatureHelp] No signature help found at any position\n');
+    return null;
+  }
+
+  private async getSignatureHelpAtPosition(
+    filePath: string,
+    position: Position,
+    triggerCharacter?: string
+  ): Promise<SignatureHelp | null> {
     const serverState = await this.getServer(filePath);
     await serverState.initializationPromise;
     await this.ensureFileOpen(serverState, filePath);
@@ -1852,27 +1873,26 @@ export class LSPClient {
       const result = await this.sendRequest(serverState.process, 'textDocument/signatureHelp', {
         textDocument: { uri: pathToUri(filePath) },
         position: position,
+        context: triggerCharacter
+          ? {
+              triggerKind: 2, // TriggerCharacter
+              triggerCharacter: triggerCharacter,
+            }
+          : {
+              triggerKind: 1, // Invoked
+            },
       });
 
       if (result && typeof result === 'object' && 'signatures' in result) {
-        return result as {
-          signatures: Array<{
-            label: string;
-            documentation?: string;
-            parameters?: Array<{
-              label: string | [number, number];
-              documentation?: string;
-            }>;
-          }>;
-          activeSignature?: number;
-          activeParameter?: number;
-        };
+        return result as SignatureHelp;
       }
     } catch (error) {
-      process.stderr.write(`[DEBUG getSignatureHelp] Error getting signature help: ${error}\n`);
+      process.stderr.write(
+        `[DEBUG getSignatureHelpAtPosition] Error getting signature help: ${error}\n`
+      );
     }
 
-    return undefined;
+    return null;
   }
 
   /**

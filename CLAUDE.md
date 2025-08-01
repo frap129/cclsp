@@ -87,6 +87,7 @@ The server provides the following MCP tools that wrap LSP functionality:
 - `get_completion` - Code completion/autocomplete functionality
 - `get_code_actions` - Get available code actions (quick fixes, refactoring, etc.)
 - `get_hover` - Get hover information (type details, documentation) for symbols
+- `get_signature_help` - Get function signature help with parameter information
 
 **Type and Class Tools**
 - `get_class_members` - List class members

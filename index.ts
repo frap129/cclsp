@@ -458,6 +458,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path', 'line', 'character'],
         },
       },
+      {
+        name: 'get_signature_help',
+        description:
+          'Get function signature help with parameter information at a specific position',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'The path to the file',
+            },
+            line: {
+              type: 'number',
+              description: 'The line number (1-indexed)',
+            },
+            character: {
+              type: 'number',
+              description: 'The character position (1-indexed)',
+            },
+            trigger_character: {
+              type: 'string',
+              description: 'Optional: Character that triggered signature help (e.g., "(", ",")',
+            },
+            function_name: {
+              type: 'string',
+              description: 'Optional: Function name to help locate the call',
+            },
+          },
+          required: ['file_path', 'line', 'character'],
+        },
+      },
     ],
   };
 });
@@ -1853,6 +1884,177 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Error getting hover information: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    if (name === 'get_signature_help') {
+      const { file_path, line, character, trigger_character, function_name } = args as {
+        file_path: string;
+        line: number;
+        character: number;
+        trigger_character?: string;
+        function_name?: string;
+      };
+      const absolutePath = resolve(file_path);
+
+      try {
+        const position = { line: line - 1, character: character - 1 };
+        const result = await lspClient.getSignatureHelp(absolutePath, position, trigger_character);
+
+        if (!result || result.signatures.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No signature help available for position ${line}:${character} in ${file_path}${function_name ? ` (searching for function: ${function_name})` : ''}`,
+              },
+            ],
+          };
+        }
+
+        // Format signature help response
+        let responseText = `Signature help for function call at line ${line}, character ${character}:\n\n`;
+
+        const activeSignature = result.activeSignature ?? 0;
+        const activeParameter = result.activeParameter;
+
+        if (result.signatures.length === 1) {
+          // Single signature
+          const sig = result.signatures[0];
+          if (!sig) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Invalid signature help data for position ${line}:${character} in ${file_path}`,
+                },
+              ],
+            };
+          }
+
+          responseText += `${sig.label}\n`;
+
+          if (activeParameter !== undefined && sig.parameters && sig.parameters[activeParameter]) {
+            const param = sig.parameters[activeParameter];
+            if (param) {
+              const paramLabel =
+                typeof param.label === 'string'
+                  ? param.label
+                  : sig.label.substring(param.label[0], param.label[1]);
+
+              responseText += `\nCurrent Parameter: ${paramLabel}\n`;
+
+              if (param.documentation) {
+                const paramDoc =
+                  typeof param.documentation === 'string'
+                    ? param.documentation
+                    : param.documentation.value;
+                responseText += `${paramDoc}\n`;
+              }
+            }
+          }
+
+          if (sig.documentation) {
+            const doc =
+              typeof sig.documentation === 'string' ? sig.documentation : sig.documentation.value;
+            responseText += `\nDocumentation:\n${doc}\n`;
+          }
+
+          if (sig.parameters && sig.parameters.length > 0) {
+            responseText += '\nParameters:\n';
+            for (let i = 0; i < sig.parameters.length; i++) {
+              const param = sig.parameters[i];
+              if (param) {
+                const paramLabel =
+                  typeof param.label === 'string'
+                    ? param.label
+                    : sig.label.substring(param.label[0], param.label[1]);
+
+                const isActive = i === activeParameter;
+                const prefix = isActive ? '▶ ' : '• ';
+                responseText += `${prefix}${paramLabel}`;
+
+                if (param.documentation) {
+                  const paramDoc =
+                    typeof param.documentation === 'string'
+                      ? param.documentation
+                      : param.documentation.value;
+                  responseText += ` - ${paramDoc}`;
+                }
+                responseText += '\n';
+              }
+            }
+          }
+        } else {
+          // Multiple signatures (overloads)
+          responseText += `Found ${result.signatures.length} overloads:\n\n`;
+
+          for (let i = 0; i < result.signatures.length; i++) {
+            const sig = result.signatures[i];
+            if (!sig) continue;
+
+            const isActive = i === activeSignature;
+            const prefix = isActive ? '→ ' : '  ';
+            responseText += `${prefix}${i + 1}. ${sig.label}`;
+
+            if (isActive) {
+              responseText += ' ← ACTIVE';
+            }
+            responseText += '\n';
+
+            if (sig.documentation) {
+              const doc =
+                typeof sig.documentation === 'string' ? sig.documentation : sig.documentation.value;
+              responseText += `   ${doc}\n`;
+            }
+            responseText += '\n';
+          }
+
+          // Show current parameter for active signature
+          const activeSig = result.signatures[activeSignature];
+          if (
+            activeSig &&
+            activeParameter !== undefined &&
+            activeSig.parameters &&
+            activeSig.parameters[activeParameter]
+          ) {
+            const param = activeSig.parameters[activeParameter];
+            if (param) {
+              const paramLabel =
+                typeof param.label === 'string'
+                  ? param.label
+                  : activeSig.label.substring(param.label[0], param.label[1]);
+
+              responseText += `Current Parameter: ${paramLabel}\n`;
+
+              if (param.documentation) {
+                const paramDoc =
+                  typeof param.documentation === 'string'
+                    ? param.documentation
+                    : param.documentation.value;
+                responseText += `${paramDoc}\n`;
+              }
+            }
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: responseText.trim(),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error getting signature help: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

@@ -297,6 +297,23 @@ export enum CompletionTriggerKind {
   TriggerForIncompleteCompletions = 3,
 }
 
+export interface SignatureHelp {
+  signatures: SignatureInformation[];
+  activeSignature?: number;
+  activeParameter?: number;
+}
+
+export interface SignatureInformation {
+  label: string;
+  documentation?: string | MarkupContent;
+  parameters?: ParameterInformation[];
+}
+
+export interface ParameterInformation {
+  label: string | [number, number];
+  documentation?: string | MarkupContent;
+}
+
 export interface FormattingOptions {
   tabSize: number;
   insertSpaces: boolean;
