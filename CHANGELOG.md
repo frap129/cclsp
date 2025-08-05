@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-08-04
+
+### Added
+
+- **Manual Server Restart**: Added `restart_server` MCP tool for manually restarting LSP servers
+  - Restart specific servers by file extension (e.g., `["ts", "tsx"]`)
+  - Restart all running servers when no extensions specified
+  - Detailed success/failure reporting for each server
+
+### Enhanced
+
+- **Server Management**: Improved LSP server lifecycle management with proper cleanup of restart timers
+
+### Fixed
+
+- **Server Preloading**: Fixed server preloading to respect `rootDir` configuration (PR #5 by @maschwenk)
+  - Now correctly scans each server's configured directory instead of using project root
+
 ## [0.5.1] - 2025-07-14
 
 ### Enhanced

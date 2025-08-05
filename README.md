@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ktnyt-cclsp-badge.png)](https://mseep.ai/app/ktnyt-cclsp)
+
 # cclsp - not your average LSP adapter
 
 [![npm version](https://badge.fury.io/js/cclsp.svg)](https://www.npmjs.com/package/cclsp)
@@ -43,6 +45,7 @@ https://github.com/user-attachments/assets/52980f32-64d6-4b78-9cbf-18d6ae120cdd
   - [`get_workspace_symbols`](#get_workspace_symbols)
   - [`get_code_actions`](#get_code_actions)
   - [`check_capabilities`](#check_capabilities)
+  - [`restart_server`](#restart_server)
 - [💡 Real-world Examples](#-real-world-examples)
   - [Finding Function Definitions](#finding-function-definitions)
   - [Finding All References](#finding-all-references)
@@ -232,6 +235,7 @@ For more languages and detailed instructions, run `bun run index.ts setup` and s
 When working with cclsp, AI assistants should use the comprehensive LSP tools provided instead of making assumptions about code structure. See [`.claude/commands/prime-lsp.md`](.claude/commands/prime-lsp.md) for detailed instructions on how to leverage these tools effectively.
 
 This directive ensures AI assistants:
+
 - Always verify LSP capabilities before proceeding
 - Use authoritative LSP data instead of guessing code relationships
 - Follow proper workflows for code navigation, analysis, and modification
@@ -408,7 +412,7 @@ Find the definition of a symbol by name and kind in a file. Returns definitions 
 
 - `file_path`: The path to the file
 - `symbol_name`: The name of the symbol
-- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
+- `symbol_kind`: The kind of symbol (function, class, variable, method, etc.) (optional)
 
 ### `find_references`
 
@@ -418,7 +422,7 @@ Find all references to a symbol by name and kind in a file. Returns references f
 
 - `file_path`: The path to the file
 - `symbol_name`: The name of the symbol
-- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
+- `symbol_kind`: The kind of symbol (function, class, variable, method, etc.) (optional)
 - `include_declaration`: Whether to include the declaration (optional, default: true)
 
 ### `rename_symbol`
@@ -429,7 +433,7 @@ Rename a symbol by name and kind in a file. If multiple symbols match, returns c
 
 - `file_path`: The path to the file
 - `symbol_name`: The name of the symbol
-- `symbol_kind`: Optional - The kind of symbol (function, class, variable, method, etc.)
+- `symbol_kind`: The kind of symbol (function, class, variable, method, etc.) (optional)
 - `new_name`: The new name for the symbol
 
 ### `rename_symbol_strict`
@@ -445,16 +449,26 @@ Rename a symbol at a specific position in a file. Use this when rename_symbol re
 
 ### `get_diagnostics`
 
-Get language diagnostics (errors, warnings, hints) for a file. Supports both pull-based (textDocument/diagnostic) and push-based (textDocument/publishDiagnostics) diagnostic reporting for maximum compatibility with different LSP servers.
+Get language diagnostics (errors, warnings, hints) for a file. Uses LSP textDocument/diagnostic to pull current diagnostics.
 
 **Parameters:**
-- `file_path`: The path to the file
+
+- `file_path`: The path to the file to get diagnostics for
+
+### `restart_server`
+
+Manually restart LSP servers. Can restart servers for specific file extensions or all running servers.
+
+**Parameters:**
+
+- `extensions`: Array of file extensions to restart servers for (e.g., ["ts", "tsx"]). If not provided, all servers will be restarted (optional)
 
 ### `get_all_diagnostics`
 
 Get comprehensive workspace-wide diagnostics analysis. This tool scans all configured files in the workspace to provide a complete project health assessment with errors, warnings, information messages, and hints.
 
 **Parameters:**
+
 - `severity_filter` (optional): Array of severity levels to include (`['error', 'warning', 'information', 'hint']`)
 - `include_files` (optional): Array of glob patterns for files to include (e.g., `['src/**/*.ts', '*.js']`)
 - `exclude_files` (optional): Array of glob patterns for files to exclude (e.g., `['**/*.test.ts', 'dist/**']`)
@@ -463,6 +477,7 @@ Get comprehensive workspace-wide diagnostics analysis. This tool scans all confi
 - `include_source` (optional): Include diagnostic source tool information (default: true)
 
 **Features:**
+
 - **Workspace-wide scanning**: Analyzes all files across configured language servers
 - **Flexible filtering**: Filter by file patterns and diagnostic severity
 - **Organized output**: Groups diagnostics by severity with summary statistics
@@ -471,6 +486,7 @@ Get comprehensive workspace-wide diagnostics analysis. This tool scans all confi
 - **Error resilient**: Continues processing when individual files fail
 
 **Example Output:**
+
 ```
 Workspace diagnostics summary:
 • 8 errors across files
@@ -496,10 +512,12 @@ Most issues in: ./src/utils/validation.ts (5 diagnostics)
 List all properties and methods of a class. Returns members with their types and signatures using LSP hover information, including namespace/package information and detailed parameter types.
 
 **Parameters:**
+
 - `file_path`: The path to the file containing the class
 - `class_name`: The name of the class
 
 **Enhanced Response Includes:**
+
 - Full type signatures with documentation
 - Namespace and package information for imported types
 - Parameter details including names, types, optional flags, and default values
@@ -510,11 +528,13 @@ List all properties and methods of a class. Returns members with their types and
 Show full method definition with parameters and return type using LSP hover information. Particularly useful for understanding API methods and their expected parameters.
 
 **Parameters:**
+
 - `file_path`: The path to the file containing the method
 - `method_name`: The name of the method
 - `class_name`: Optional - The name of the class containing the method (helps narrow results)
 
 **Enhanced Response Includes:**
+
 - Complete method signature with all type information
 - Parsed parameter details with types and default values
 - Namespace/package information for complex types
@@ -525,11 +545,13 @@ Show full method definition with parameters and return type using LSP hover info
 Search for symbols (types, methods, functions, variables, etc.) across the entire workspace by name. Supports wildcards and case-insensitive search by default, making it perfect for discovering symbols when you don't know the exact location.
 
 **Parameters:**
+
 - `type_name`: The name or pattern of the symbol to search for. Supports wildcards: `*` (any sequence), `?` (single char). Examples: `BreakType`, `*method`, `getValue*`, `?etData`
 - `type_kind`: Optional - Filter by symbol kind (`class`, `interface`, `enum`, `struct`, `type_parameter`, `method`, `function`, `constructor`, `field`, `variable`, `property`, `constant`, `namespace`, `module`, `package`)
 - `case_sensitive`: Optional - Whether to perform case-sensitive search (default: false)
 
 **Features:**
+
 - **Workspace-wide search**: Searches across all files in the workspace
 - **Wildcard support**: Use `*` and `?` for pattern matching
 - **Symbol filtering**: Filter results by specific symbol types
@@ -541,13 +563,15 @@ Search for symbols (types, methods, functions, variables, etc.) across the entir
 Get all symbols (classes, functions, variables, etc.) in a document with their locations and hierarchy. Perfect for exploring unfamiliar files and understanding code structure at a glance.
 
 **Parameters:**
+
 - `file_path`: The path to the file to analyze
 - `symbol_kind`: Optional - Filter by symbol kind (`class`, `function`, `variable`, `method`, `property`, `field`, `constructor`, `enum`, `interface`, `namespace`, `module`, `constant`)
 - `include_children`: Whether to include child symbols (e.g., methods within classes) - default: true
 
 **Features:**
+
 - **Complete file overview**: Lists all symbols in a single file without needing to know what to look for
-- **Hierarchical structure**: Shows parent-child relationships (e.g., methods within classes)  
+- **Hierarchical structure**: Shows parent-child relationships (e.g., methods within classes)
 - **Symbol filtering**: Optionally filter by specific symbol types
 - **Location information**: Provides exact line and character positions
 - **Discovery-oriented**: Ideal for code exploration and understanding file architecture
@@ -557,12 +581,14 @@ Get all symbols (classes, functions, variables, etc.) in a document with their l
 Search for symbols across the entire workspace by name or pattern. Perfect for finding symbols when you don't know their exact location or exploring large codebases.
 
 **Parameters:**
+
 - `query`: Search query for symbols (supports wildcards and partial matching)
 - `symbol_kind`: Optional - Filter by symbol kind (`class`, `function`, `variable`, `method`, `property`, `field`, `constructor`, `enum`, `interface`, `namespace`, `module`, `constant`, `file`, `package`, `struct`, `event`, `operator`, `type_parameter`)
 - `max_results`: Maximum number of results to return (default: 100)
 - `case_sensitive`: Whether search should be case sensitive (default: false)
 
 **Features:**
+
 - **Workspace-wide search**: Searches across all files and language servers in the workspace
 - **Wildcard support**: Use `*` and `?` for pattern matching (e.g., `*Error*`, `get*`, `?etUser`)
 - **Symbol filtering**: Filter results by specific symbol types
@@ -576,6 +602,7 @@ Search for symbols across the entire workspace by name or pattern. Perfect for f
 Get available code actions (quick fixes, refactoring suggestions, etc.) for a specific location or range in a file. Code actions provide automated code improvements and transformations.
 
 **Parameters:**
+
 - `file_path`: The path to the file
 - `start_line`: Start line number (1-indexed)
 - `end_line`: Optional - End line number (1-indexed, defaults to start_line)
@@ -586,6 +613,7 @@ Get available code actions (quick fixes, refactoring suggestions, etc.) for a sp
 - `apply_action`: Optional - Title of the specific action to apply
 
 **Features:**
+
 - **Quick fixes**: Automatic fixes for diagnostics and errors
 - **Refactoring**: Extract methods, rename variables, organize imports, etc.
 - **Source actions**: Organize imports, remove unused imports, format code
@@ -599,6 +627,7 @@ Get available code actions (quick fixes, refactoring suggestions, etc.) for a sp
 Get code completion suggestions at a specific position in a file. Provides intelligent autocomplete functionality to assist with code development and exploration.
 
 **Parameters:**
+
 - `file_path`: The path to the file
 - `line`: The line number (1-indexed)
 - `character`: The character position (1-indexed)
@@ -608,6 +637,7 @@ Get code completion suggestions at a specific position in a file. Provides intel
 - `max_results`: Maximum number of completion items to return (default: 50)
 
 **Features:**
+
 - **Context-aware suggestions**: Provides relevant completions based on current scope and position
 - **Type information**: Shows parameter types and return types for methods and functions
 - **Documentation**: Includes brief descriptions when available and when resolve_details is enabled
@@ -620,6 +650,7 @@ Get code completion suggestions at a specific position in a file. Provides intel
 Format a document or specific range with configurable formatting options. Provides consistent code style and formatting using the LSP server's formatting capabilities.
 
 **Parameters:**
+
 - `file_path`: The path to the file to format
 - `start_line`: Optional - Start line for range formatting (1-indexed)
 - `end_line`: Optional - End line for range formatting (1-indexed)
@@ -631,6 +662,7 @@ Format a document or specific range with configurable formatting options. Provid
 - `apply_changes`: Apply formatting changes to the file (default: false - preview only)
 
 **Features:**
+
 - **Full document formatting**: Format entire files with consistent style
 - **Range formatting**: Format specific line ranges only
 - **Preview mode**: Show formatting changes without applying them (default)
@@ -644,11 +676,13 @@ Format a document or specific range with configurable formatting options. Provid
 Check what capabilities are supported by the active LSP servers. This tool helps diagnose LSP server functionality and understand what features are available.
 
 **Parameters:**
+
 - `file_extension`: Optional - Check capabilities for specific file extension (e.g., "ts", "py")
 - `capability_type`: Optional - Filter by capability type (`text_document`, `workspace`, `experimental`)
 - `detailed`: Optional - Show detailed capability information (default: false)
 
 **Features:**
+
 - **Server capability inspection**: See what features each LSP server supports
 - **Extension-specific filtering**: Check capabilities for specific file types
 - **Capability categorization**: Organized by text document, workspace, and experimental features
@@ -665,9 +699,9 @@ When Claude needs to understand how a function works:
 
 ```
 Claude: Let me find the definition of the `processRequest` function
-> Using cclsp.find_definition at line 42, character 15
+> Using cclsp.find_definition with symbol_name="processRequest", symbol_kind="function"
 
-Result: Found definition at src/handlers/request.ts:127
+Result: Found definition at src/handlers/request.ts:127:1
 ```
 
 ### Finding All References
@@ -676,14 +710,14 @@ When refactoring or understanding code impact:
 
 ```
 Claude: I'll find all places where `CONFIG_PATH` is used
-> Using cclsp.find_references at line 10, character 20
+> Using cclsp.find_references with symbol_name="CONFIG_PATH"
 
 Results: Found 5 references:
-- src/config.ts:10 (declaration)
-- src/index.ts:45
-- src/utils/loader.ts:23
-- tests/config.test.ts:15
-- tests/config.test.ts:89
+- src/config.ts:10:1 (declaration)
+- src/index.ts:45:15
+- src/utils/loader.ts:23:8
+- tests/config.test.ts:15:10
+- tests/config.test.ts:89:12
 ```
 
 ### Renaming Symbols
@@ -692,9 +726,30 @@ Safe refactoring across the entire codebase:
 
 ```
 Claude: I'll rename `getUserData` to `fetchUserProfile`
-> Using cclsp.rename_symbol at line 55, character 10
+> Using cclsp.rename_symbol with symbol_name="getUserData", new_name="fetchUserProfile"
 
-Result: 12 files will be updated with the new name
+Result: Successfully renamed getUserData (function) to "fetchUserProfile":
+File: src/api/user.ts
+  - Line 55, Column 10 to Line 55, Column 21: "fetchUserProfile"
+File: src/services/auth.ts
+  - Line 123, Column 15 to Line 123, Column 26: "fetchUserProfile"
+... (12 files total)
+```
+
+When multiple symbols match:
+
+```
+Claude: I'll rename the `data` variable to `userData`
+> Using cclsp.rename_symbol with symbol_name="data", new_name="userData"
+
+Result: Multiple symbols found matching "data". Please use rename_symbol_strict with one of these positions:
+- data (variable) at line 45, character 10
+- data (parameter) at line 89, character 25
+- data (property) at line 112, character 5
+
+> Using cclsp.rename_symbol_strict with line=45, character=10, new_name="userData"
+
+Result: Successfully renamed symbol at line 45, character 10 to "userData"
 ```
 
 ### Checking File Diagnostics
@@ -739,8 +794,8 @@ ERRORS (12):
 Files with issues: 15 of 89 total files analyzed (16.9%)
 Most issues in: ./src/utils/validation.ts (5 diagnostics)
 
-Claude: I can see this project has some critical issues that need attention. 
-The validation utility has type mismatches, and there are missing imports 
+Claude: I can see this project has some critical issues that need attention.
+The validation utility has type mismatches, and there are missing imports
 in the React components. Let me help you fix these systematically.
 ```
 
@@ -909,20 +964,20 @@ Found 12 completion suggestions at line 25, character 10:
 Methods:
 • toString(): string
   Returns a string representation of the object
-  
+
 • save(): Promise<User>
   Saves the user to the database
-  
+
 • delete(): Promise<void>
   Removes the user from the database
 
 Properties:
 • id: string
   Unique identifier for the user
-  
+
 • email: string
   User's email address
-  
+
 • name: string
   User's display name
 
@@ -993,6 +1048,30 @@ Total: 12 formatting edits
 File modified: Yes
 ```
 
+### Restarting LSP Servers
+
+When LSP servers become unresponsive or configuration changes:
+
+```
+Claude: The TypeScript server seems unresponsive, let me restart it
+> Using cclsp.restart_server with extensions ["ts", "tsx"]
+
+Result: Successfully restarted 1 LSP server(s)
+Restarted servers:
+• typescript-language-server --stdio (ts, tsx)
+```
+
+Or restart all servers:
+
+````
+Claude: I'll restart all LSP servers to ensure they're working properly
+> Using cclsp.restart_server
+
+Result: Successfully restarted 2 LSP server(s)
+Restarted servers:
+• typescript-language-server --stdio (ts, tsx)
+• pylsp (py)
+
 ## 🔍 Troubleshooting
 
 ### Known Issues
@@ -1021,9 +1100,14 @@ Add `restartInterval` to your Python server configuration:
     }
   ]
 }
-```
+````
 
 This will automatically restart the Python LSP server every 5 minutes, maintaining optimal performance for long coding sessions.
+
+**Alternative**: You can also manually restart servers using the `restart_server` tool when needed:
+
+- Restart specific server: `restart_server` with `extensions: ["py"]`
+- Restart all servers: `restart_server` without parameters
 
 **Note**: The setup wizard automatically configures this for Python servers when detected.
 
