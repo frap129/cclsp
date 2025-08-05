@@ -2,11 +2,80 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import inquirer from 'inquirer';
 import { scanProjectFiles } from './file-scanner.js';
 import { LANGUAGE_SERVERS, generateConfig } from './language-servers.js';
+
+// Runtime detection utilities
+async function checkRuntimeAvailability(runtime: string): Promise<boolean> {
+  try {
+    const result = await runCommandSilent(['which', runtime]);
+    return result.success;
+  } catch {
+    return false;
+  }
+}
+
+function detectLocalInstallation(): string | null {
+  // Check if we're running from a local cclsp installation
+  const currentDir = process.cwd();
+  const distPath = join(currentDir, 'dist', 'index.js');
+
+  if (existsSync(distPath)) {
+    return distPath;
+  }
+
+  // Check if we're in the src directory of cclsp
+  const parentDistPath = join(dirname(currentDir), 'dist', 'index.js');
+  if (existsSync(parentDistPath)) {
+    return parentDistPath;
+  }
+
+  // Check if we're running the setup command from dist/index.js
+  const processPath = process.argv[1];
+  if (processPath?.endsWith('dist/index.js')) {
+    const setupDistPath = resolve(processPath);
+    if (existsSync(setupDistPath)) {
+      return setupDistPath;
+    }
+  }
+
+  return null;
+}
+
+async function constructCclspCommand(
+  configPath: string
+): Promise<{ command: string; description: string }> {
+  const localInstallPath = detectLocalInstallation();
+
+  if (!localInstallPath) {
+    throw new Error(
+      'cclsp must be run from a local repository installation. Please clone the repository and build it with "bun run build".'
+    );
+  }
+
+  // Local installation detected - determine best runtime
+  const bunAvailable = await checkRuntimeAvailability('bun');
+  const nodeAvailable = await checkRuntimeAvailability('node');
+
+  if (bunAvailable) {
+    return {
+      command: `bun run "${localInstallPath}"`,
+      description: 'local installation with bun runtime',
+    };
+  }
+  if (nodeAvailable) {
+    return {
+      command: `node "${localInstallPath}"`,
+      description: 'local installation with node runtime',
+    };
+  }
+
+  throw new Error('No suitable runtime found. Please install Node.js or Bun to run cclsp.');
+}
 
 // Detailed installation guides for LSP servers
 const DETAILED_INSTALL_GUIDES = {
@@ -326,6 +395,26 @@ async function main() {
 
   console.log('🚀 cclsp Configuration Generator\n');
 
+  // Ensure we're running from a local installation
+  const localInstallPath = detectLocalInstallation();
+  if (!localInstallPath) {
+    console.error('❌ cclsp must be run from a local repository installation.');
+    console.error('Please clone the repository and build it with "bun run build".');
+    process.exit(1);
+  }
+
+  const bunAvailable = await checkRuntimeAvailability('bun');
+  const nodeAvailable = await checkRuntimeAvailability('node');
+
+  if (bunAvailable) {
+    console.log('🔧 Local cclsp installation with bun runtime\n');
+  } else if (nodeAvailable) {
+    console.log('🔧 Local cclsp installation with node runtime\n');
+  } else {
+    console.error('❌ No suitable runtime found. Please install Node.js or Bun.');
+    process.exit(1);
+  }
+
   if (isUser) {
     console.log('👤 User configuration mode\n');
   } else {
@@ -463,10 +552,18 @@ async function main() {
     // Show Claude MCP setup instructions
     const absoluteConfigPath = resolve(configPath);
     const scopeFlag = isUser ? ' --scope user' : '';
-    const mcpCommand = `claude mcp add cclsp npx cclsp@latest${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
+    try {
+      const { command: cclspCommand, description } =
+        await constructCclspCommand(absoluteConfigPath);
+      const mcpCommand = `claude mcp add cclsp ${cclspCommand}${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
 
-    console.log('\n🔗 To use cclsp with Claude Code, add it to your MCP configuration:');
-    console.log(mcpCommand);
+      console.log('\n🔗 To use cclsp with Claude Code, add it to your MCP configuration:');
+      console.log(mcpCommand);
+      console.log(`   Using ${description}`);
+    } catch (error) {
+      console.error(`\n❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
 
     const { viewConfig } = await inquirer.prompt([
       {
@@ -597,28 +694,55 @@ async function main() {
         }
 
         console.log('➕ Adding cclsp to Claude MCP configuration...');
+        try {
+          const { command: cclspCommand, description } =
+            await constructCclspCommand(absoluteConfigPath);
+          const mcpCommand = `claude mcp add cclsp ${cclspCommand}${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
+          console.log(`   Using ${description}`);
 
-        const mcpArgs = mcpCommand.split(' ').slice(1); // Remove 'claude' from the command
-        const success = await runCommand([claudeCmd, ...mcpArgs], 'cclsp MCP configuration', false);
+          const mcpArgs = mcpCommand.split(' ').slice(1); // Remove 'claude' from the command
+          const success = await runCommand(
+            [claudeCmd, ...mcpArgs],
+            'cclsp MCP configuration',
+            false
+          );
 
-        if (success) {
-          console.log('🎉 cclsp has been successfully added to your Claude MCP configuration!');
-          console.log('\n✨ You can now use cclsp tools in Claude Code:');
-          console.log('   • find_definition - Find symbol definitions');
-          console.log('   • find_references - Find symbol references');
-          console.log('   • rename_symbol - Rename symbols across the codebase');
-        } else {
+          if (success) {
+            console.log('🎉 cclsp has been successfully added to your Claude MCP configuration!');
+            console.log('\n✨ You can now use cclsp tools in Claude Code:');
+            console.log('   • find_definition - Find symbol definitions');
+            console.log('   • find_references - Find symbol references');
+            console.log('   • rename_symbol - Rename symbols across the codebase');
+          } else {
+            console.log('\n💡 You can manually add cclsp to your MCP configuration using:');
+            console.log(`   ${mcpCommand}`);
+          }
+        } catch (error) {
+          console.error(`\n❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+          const fallbackCommand = `claude mcp add cclsp node /path/to/cclsp/dist/index.js${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
           console.log('\n💡 You can manually add cclsp to your MCP configuration using:');
-          console.log(`   ${mcpCommand}`);
+          console.log(`   ${fallbackCommand}`);
+          console.log('\nReplace /path/to/cclsp with the actual path to your cclsp repository.');
         }
       } catch (error) {
         console.log(`\n❌ Failed to configure cclsp in MCP: ${error}`);
+        const fallbackCommand = `claude mcp add cclsp node /path/to/cclsp/dist/index.js${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
         console.log('\n💡 You can manually add cclsp to your MCP configuration using:');
-        console.log(`   ${mcpCommand}`);
+        console.log(`   ${fallbackCommand}`);
+        console.log('\nReplace /path/to/cclsp with the actual path to your cclsp repository.');
       }
     } else {
-      console.log('\n💡 You can add cclsp to your MCP configuration later using:');
-      console.log(`   ${mcpCommand}`);
+      try {
+        const { command: cclspCommand } = await constructCclspCommand(absoluteConfigPath);
+        const mcpCommand = `claude mcp add cclsp ${cclspCommand}${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
+        console.log('\n💡 You can add cclsp to your MCP configuration later using:');
+        console.log(`   ${mcpCommand}`);
+      } catch (error) {
+        const fallbackCommand = `claude mcp add cclsp node /path/to/cclsp/dist/index.js${scopeFlag} --env CCLSP_CONFIG_PATH=${absoluteConfigPath}`;
+        console.log('\n💡 You can add cclsp to your MCP configuration later using:');
+        console.log(`   ${fallbackCommand}`);
+        console.log('\nReplace /path/to/cclsp with the actual path to your cclsp repository.');
+      }
     }
   } catch (error) {
     console.error(`\n❌ Failed to write configuration file: ${error}`);

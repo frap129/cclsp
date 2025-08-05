@@ -84,18 +84,26 @@ When using AI-powered coding assistants like Claude, you often need to navigate 
 
 ## ⚡ Setup
 
-cclsp provides an interactive setup wizard that automates the entire configuration process. Choose your preferred method:
+cclsp requires a local repository installation and build. Follow these steps:
 
-### Automated Setup (Recommended)
+### Local Repository Setup
 
-Run the interactive setup wizard:
+Clone and build the repository:
 
 ```bash
-# One-time setup (no installation required)
-npx cclsp@latest setup
+# Clone the repository
+git clone https://github.com/ktnyt/cclsp.git
+cd cclsp
+
+# Install dependencies and build
+bun install
+bun run build
+
+# Run the interactive setup wizard
+bun run index.ts setup
 
 # For user-wide configuration
-npx cclsp@latest setup --user
+bun run index.ts setup --user
 ```
 
 The setup wizard will:
@@ -112,14 +120,30 @@ The setup wizard will:
 - **Project Configuration** (default): Creates `.claude/cclsp.json` in current directory
 - **User Configuration** (`--user`): Creates global config in `~/.config/claude/cclsp.json`
 
+### Configuration and Usage
+
+After building, create your configuration file and add cclsp to Claude MCP:
+
+```bash
+# Create configuration (run this in your project directory or with --user for global)
+bun run index.ts setup
+
+# This will generate the MCP command to add cclsp to Claude Code
+# Example output:
+# claude mcp add cclsp bun run "/path/to/cclsp/dist/index.js" --env CCLSP_CONFIG_PATH=/path/to/cclsp.json
+```
+
 ### Manual Setup
 
-If you prefer manual configuration:
+If you prefer manual configuration after cloning and building:
 
-1. **Install cclsp**:
+1. **Clone and build cclsp**:
 
    ```bash
-   npm install -g cclsp
+   git clone https://github.com/ktnyt/cclsp.git
+   cd cclsp
+   bun install
+   bun run build
    ```
 
 2. **Install language servers** (see [Language Server Installation](#language-server-installation))
@@ -128,14 +152,16 @@ If you prefer manual configuration:
 
    ```bash
    # Use the interactive generator
-   cclsp setup
+   bun run index.ts setup
 
    # Or create manually (see Configuration section)
    ```
 
 4. **Add to Claude MCP**:
    ```bash
-   claude mcp add cclsp npx cclsp@latest --env CCLSP_CONFIG_PATH=/path/to/cclsp.json
+   claude mcp add cclsp bun run "/path/to/cclsp/dist/index.js" --env CCLSP_CONFIG_PATH=/path/to/cclsp.json
+   # Or with node:
+   claude mcp add cclsp node "/path/to/cclsp/dist/index.js" --env CCLSP_CONFIG_PATH=/path/to/cclsp.json
    ```
 
 ### Language Server Installation
@@ -195,7 +221,7 @@ gem install solargraph
 npm install -g intelephense
 ```
 
-For more languages and detailed instructions, run `npx cclsp@latest setup` and select "Show detailed installation guides".
+For more languages and detailed instructions, run `bun run index.ts setup` and select "Show detailed installation guides".
 
 </details>
 
@@ -215,13 +241,14 @@ This directive ensures AI assistants:
 
 Configure in your MCP client (e.g., Claude Code):
 
-#### Using npm package (after global install)
+#### Using local installation
 
 ```json
 {
   "mcpServers": {
     "cclsp": {
-      "command": "cclsp",
+      "command": "bun",
+      "args": ["run", "/path/to/cclsp/dist/index.js"],
       "env": {
         "CCLSP_CONFIG_PATH": "/path/to/your/cclsp.json"
       }
@@ -230,7 +257,7 @@ Configure in your MCP client (e.g., Claude Code):
 }
 ```
 
-#### Using local installation
+#### Alternative with Node.js
 
 ```json
 {
@@ -253,13 +280,13 @@ Configure in your MCP client (e.g., Claude Code):
 For easy setup, use the interactive configuration generator:
 
 ```bash
-# Using npx (recommended for one-time setup)
-npx cclsp@latest setup
+# From your cloned cclsp repository
+bun run index.ts setup
 
-# If installed globally
-cclsp setup
+# For user-wide configuration
+bun run index.ts setup --user
 
-# Or run directly with the development version
+# Or run directly during development
 bun run setup
 ```
 

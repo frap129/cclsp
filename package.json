@@ -3,9 +3,6 @@
   "version": "0.5.1",
   "description": "MCP server for accessing LSP functionality",
   "main": "dist/index.js",
-  "bin": {
-    "cclsp": "dist/index.js"
-  },
   "type": "module",
   "scripts": {
     "build": "bun build --target=node --outdir=dist index.ts",
@@ -17,8 +14,7 @@
     "lint:fix": "biome check --fix .",
     "lint:fix-unsafe": "biome check --fix --unsafe .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run test && npm run typecheck"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "mcp",
@@ -37,14 +33,6 @@
   "bugs": {
     "url": "https://github.com/ktnyt/cclsp/issues"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE",
-    "CLAUDE.md",
-    "cclsp.config.json"
-  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.3",
     "@types/inquirer": "^9.0.8",
