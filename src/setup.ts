@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import inquirer from 'inquirer';
@@ -334,6 +333,64 @@ async function checkExistingCclspMCP(isUser: boolean): Promise<boolean> {
     // Check if cclsp is in the output
     return result.output.toLowerCase().includes('cclsp');
   } catch (error) {
+    return false;
+  }
+}
+
+function getUserCommandsPath(): string {
+  return join(homedir(), '.claude', 'commands');
+}
+
+function getProjectCommandsPath(): string {
+  return join(process.cwd(), '.claude', 'commands');
+}
+
+function getCommandsPath(isUser: boolean): string {
+  return isUser ? getUserCommandsPath() : getProjectCommandsPath();
+}
+
+async function checkExistingPrimeLSPCommand(isUser: boolean): Promise<boolean> {
+  const commandsPath = getCommandsPath(isUser);
+  const primeLspPath = join(commandsPath, 'prime-lsp.md');
+  return existsSync(primeLspPath);
+}
+
+async function installPrimeLSPCommand(isUser: boolean): Promise<boolean> {
+  try {
+    // Get source file path (from current project)
+    const sourcePath = join(process.cwd(), '.claude', 'commands', 'prime-lsp.md');
+
+    // Check if source file exists
+    if (!existsSync(sourcePath)) {
+      console.log('❌ Source prime-lsp.md file not found in project .claude/commands directory');
+      console.log('   Expected location: .claude/commands/prime-lsp.md');
+      return false;
+    }
+
+    // Get target path
+    const commandsPath = getCommandsPath(isUser);
+    const targetPath = join(commandsPath, 'prime-lsp.md');
+
+    // For project installations, check if source and target are the same
+    if (!isUser && resolve(sourcePath) === resolve(targetPath)) {
+      console.log('✅ prime-lsp command already exists in project .claude/commands');
+      console.log(`📁 Located at: ${targetPath}`);
+      return true;
+    }
+
+    // Create target directory if needed
+    mkdirSync(commandsPath, { recursive: true });
+
+    // Read source content and write to target
+    const content = readFileSync(sourcePath, 'utf-8');
+    writeFileSync(targetPath, content);
+
+    const scope = isUser ? 'user' : 'project';
+    console.log(`✅ prime-lsp command installed successfully to ${scope} scope`);
+    console.log(`📁 Installed to: ${targetPath}`);
+    return true;
+  } catch (error) {
+    console.log(`❌ Failed to install prime-lsp command: ${error}`);
     return false;
   }
 }
@@ -743,6 +800,116 @@ async function main() {
         console.log(`   ${fallbackCommand}`);
         console.log('\nReplace /path/to/cclsp with the actual path to your cclsp repository.');
       }
+    }
+
+    // Ask if user wants to install the prime-lsp command for AI assistants
+    const { shouldInstallPrimeLSP } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'shouldInstallPrimeLSP',
+        message: 'Do you want to install the prime-lsp command for AI assistants?',
+        default: true,
+      },
+    ]);
+
+    if (shouldInstallPrimeLSP) {
+      // Ask for installation scope
+      const { commandScope } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'commandScope',
+          message: 'Where should the prime-lsp command be installed?',
+          choices: [
+            {
+              name: 'User scope (~/.claude/commands) - Available globally for all projects',
+              value: 'user',
+              short: 'User scope',
+            },
+            {
+              name: 'Project scope (./.claude/commands) - Available only for this project',
+              value: 'project',
+              short: 'Project scope',
+            },
+          ],
+          default: isUser ? 'user' : 'project',
+        },
+      ]);
+
+      const commandIsUser = commandScope === 'user';
+      const scopeDescription = commandIsUser
+        ? 'user scope (~/.claude/commands)'
+        : 'project scope (./.claude/commands)';
+
+      console.log(`\n🤖 Installing prime-lsp command for AI assistants to ${scopeDescription}...`);
+
+      // Check if command already exists in chosen scope
+      const primeLspExists = await checkExistingPrimeLSPCommand(commandIsUser);
+
+      // Also check if it exists in the other scope to inform user
+      const otherScopeExists = await checkExistingPrimeLSPCommand(!commandIsUser);
+      const otherScopeDescription = !commandIsUser
+        ? 'user scope (~/.claude/commands)'
+        : 'project scope (./.claude/commands)';
+
+      if (otherScopeExists) {
+        console.log(`💡 Note: prime-lsp command already exists in ${otherScopeDescription}`);
+      }
+
+      if (primeLspExists) {
+        console.log(`🔍 Found existing prime-lsp command in ${scopeDescription}`);
+        const { shouldOverwrite } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'shouldOverwrite',
+            message: `Overwrite existing prime-lsp.md command in ${scopeDescription}?`,
+            default: true,
+          },
+        ]);
+
+        if (!shouldOverwrite) {
+          console.log('⏭️  Skipping prime-lsp command installation');
+        } else {
+          const success = await installPrimeLSPCommand(commandIsUser);
+          if (success) {
+            console.log('🎉 prime-lsp command updated successfully!');
+            console.log('\n✨ AI assistants can now use the comprehensive LSP usage directive:');
+            console.log('   • Ensures proper LSP tool usage over manual code inspection');
+            console.log('   • Provides mandatory guidelines for accurate code analysis');
+            console.log(
+              `   • Available ${commandIsUser ? 'globally for all Claude projects' : 'for this project'}`
+            );
+          } else {
+            const commandsPath = getCommandsPath(commandIsUser);
+            console.log(
+              `\n💡 You can manually copy .claude/commands/prime-lsp.md to ${commandsPath}/`
+            );
+          }
+        }
+      } else {
+        const success = await installPrimeLSPCommand(commandIsUser);
+        if (success) {
+          console.log('🎉 prime-lsp command installed successfully!');
+          console.log('\n✨ AI assistants can now use the comprehensive LSP usage directive:');
+          console.log('   • Ensures proper LSP tool usage over manual code inspection');
+          console.log('   • Provides mandatory guidelines for accurate code analysis');
+          console.log(
+            `   • Available ${commandIsUser ? 'globally for all Claude projects' : 'for this project'}`
+          );
+        } else {
+          const commandsPath = getCommandsPath(commandIsUser);
+          console.log(
+            `\n💡 You can manually copy .claude/commands/prime-lsp.md to ${commandsPath}/`
+          );
+        }
+      }
+    } else {
+      console.log('\n💡 You can install the prime-lsp command later by copying:');
+      console.log(
+        '   For user scope: .claude/commands/prime-lsp.md → ~/.claude/commands/prime-lsp.md'
+      );
+      console.log(
+        '   For project scope: .claude/commands/prime-lsp.md → ./.claude/commands/prime-lsp.md'
+      );
     }
   } catch (error) {
     console.error(`\n❌ Failed to write configuration file: ${error}`);
